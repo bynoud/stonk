@@ -127,8 +127,8 @@ def run_strategy(ps: pd.Series, strategyDecision, stopLossChk = None):
             #     dec, reason = Decision.KEEP, "Should keep it at least 4 days"
 
         if dec == Decision.NONE:
-            # FIXME: make some way to seletively run function# dec, reason = strategyDecision(macdHist, rsi, False if lastBuyIdx<0 else True, idx)
-            dec, reason = simple_moving_average_decision(ema50, ema21, ema14, idx)
+            dec, reason = strategyDecision(macdHist, rsi, False if lastBuyIdx<0 else True, idx)
+            # dec, reason = simple_moving_average_decision(ema50, ema21, ema14, idx)
 
         if dec == Decision.BUY:
             if lastBuyIdx < 0:
@@ -251,7 +251,7 @@ def run_backtest(strategyName: str, price: {'open':pd.Series, 'close':pd.Series}
 
 # Recheck all tickets, run this once a month to see any change in my brackets of strategy tickets
 def recheckAll(strategyName: str, priceHist, stopLoss: float = -10, 
-                maxHoldDay:int=20, shares: int = 1000, 
+                maxHoldDay:int=40, shares: int = 1000, 
                 report: bool = True, debug: bool = False):
     _G['DEBUG'] = debug
     res = {}
@@ -286,12 +286,12 @@ def getDecisionNow(strategyName: str):
             actCnt += 1
     print("---- Finished checking for '%s'. There's action recommended for %0d/%0d" % (strategyName, actCnt, len(tickets)))
 
-def getDecisionTest():
+def getDecisionTest(priceHist=None):
     prices = {}
     periods = 365*2+50
     for exc in ['hose', 'hnx']:
         print("Getting price for '%s' ..." % exc)
-        tickets = StockAPI.getAllSymbols('hose')
+        tickets = StockAPI.getAllTickets()
         for tic in tickets:
             if tic in prices: print("DUPLICATED SYMBOLS??? %s" % tic)
             prices[tic] = pd.DataFrame(StockAPI.getPriceHistory(tic, periods))
