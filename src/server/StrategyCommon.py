@@ -4,7 +4,7 @@ from Symbol import SymbolHistory
 import StockAPI
 import logging
 
-Decision = Enum('Decision', 'BUY SELL KEEP NONE')
+Decision = Enum('Decision', 'BUY SELL UNKN KEEP NONE')
 Trend = Enum('Trend', 'BULL BEAR NONE')
 
 class BacktestResult:

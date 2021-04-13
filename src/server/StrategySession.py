@@ -5,6 +5,7 @@ import StockAPI
 from Symbol import SymbolHistory
 from StrategyCommon import run_backtest, Decision
 from MovingAverageStrategy import get_best_double_ma
+import MoneyFlowStrategy
 import HeikinAshiStrategy
 import Signal
 import StockDB
@@ -45,23 +46,27 @@ def _process_intra(intra):
     })
 
 class BacktestSession:
-    def __init__(self, tickets=None, debug=None):
+    def __init__(self, tickets=None, debug=False, refetchAll=False):
         self._tickets = tickets
         self._symbols = None
-        self._db = StockDB.StockDB()
-        self._intra = None
+        # self._db = StockDB.StockDB()
+        # self._intra = None
         self._signals = None
         self.debugMode = debug
         if debug:
-            self._symbols = pickle.load(open('data/priceHistory2Years50_20202703.pkl', 'rb'))
-            self._intra = pickle.load(open('data/intraBook20210326_raw.pkl', 'rb'))
+            self._symbols = pickle.load(open('data/current_prices.pkl', 'rb'))
+            self._signals = pickle.load(open('data/current_signals.pkl', 'rb'))
+            # self._intra = pickle.load(open('data/current_intra.pkl', 'rb'))
+        if not refetchAll:
+            self._tickets = pickle.load(open('data/selTickets.pkl', 'rb'))
 
     def backup_price(self, filename):
         pickle.dump(self._symbols, open(filename, 'wb'))
 
     def start(self, filerFunc='_default_'):
         if self._symbols is None:
-            symbols = getAllSymbolHistory(tickets=StockAPI.getAllTickets())
+            tickets = StockAPI.getAllTickets() if self._tickets is None else self._tickets
+            symbols = getAllSymbolHistory(tickets=tickets)
         else:
             symbols = self._symbols
         if filerFunc is None:
@@ -70,42 +75,52 @@ class BacktestSession:
             if filerFunc == '_default_':
                 # filerFunc = lambda(x: x.len>=100 and x.sma(src='volumn',window=50).iloc[-1]>=100000)
                 def _defaultFilter(x):
-                    return x.len>=100 and x.sma(src='volumn',window=50).iloc[-1]>=100000
+                    return (
+                        x.len>=100 and 
+                        x.sma(src='volumn',window=50).iloc[-1]>=100000 and 
+                        x.close.iloc[-1] > 7.0
+                    )
                 filerFunc = _defaultFilter
             self._symbols = {x.name:x for x in filter(filerFunc, symbols.values())}
-        self._tickets = list(self._symbols.keys())
-        # get Intra
-        if self._intra is None:
-            self._intra = StockAPI.getIntradayBooks(self._tickets)
-            if not self.debugMode:
-                self._db.add_intraday(self._intra)
-        print('len', len(self._tickets), len(self._symbols), len(self._intra))
+        self._tickets = sorted(self._symbols.keys())
+        pickle.dump(self._tickets, open('data/selTickets.pkl', 'wb'))
+        # # get Intra
+        # if self._intra is None:
+        #     self._intra = StockAPI.getIntradayBooks(self._tickets)
+        #     if not self.debugMode:
+        #         self._db.add_intraday(self._intra)
+        if not self.debugMode:
+            StockAPI.fetchIntradayAllTickets(self._tickets)
+        pickle.dump(self._symbols, open('data/current_prices.pkl', 'wb'))
+        # pickle.dump(self._intra, open('data/current_intra.pkl', 'wb'))
+        print('len', len(self._tickets), len(self._symbols))
     
     def end(self):
-        self._db.close()
+        pass
+        # self._db.close()
 
-    def _process_intra(self):
-        print("Process intra")
-        res = {}
-        for k,v in self._intra.items():
-            if k not in self._symbols:
-                continue
-            buy = {}
-            sell = {}
-            for r in v:
-                p = r['Price']
-                if p not in buy: buy[p] = 0
-                if p not in sell: sell[p] = 0
-                if r['IsBuy']:
-                    buy[p] += r['Vol']
-                else:
-                    sell[p] += r['Vol']
-            prices = sorted(buy.keys())
-            yield (k, pd.DataFrame({
-                'p': prices,
-                'b': [buy[p] for p in prices],
-                's': [sell[p] for p in prices],
-            }))
+    # def _process_intra(self):
+    #     print("Process intra")
+    #     res = {}
+    #     for k,v in self._intra.items():
+    #         if k not in self._symbols:
+    #             continue
+    #         buy = {}
+    #         sell = {}
+    #         for r in v:
+    #             p = r['Price']
+    #             if p not in buy: buy[p] = 0
+    #             if p not in sell: sell[p] = 0
+    #             if r['IsBuy']:
+    #                 buy[p] += r['Vol']
+    #             else:
+    #                 sell[p] += r['Vol']
+    #         prices = sorted(buy.keys())
+    #         yield (k, pd.DataFrame({
+    #             'p': prices,
+    #             'b': [buy[p] for p in prices],
+    #             's': [sell[p] for p in prices],
+    #         }))
 
     def run_backtest(self, strategyFunc, **params):
         res = {}
@@ -150,31 +165,68 @@ class BacktestSession:
                 print("[%s] It trading near SuperTrend Support # %0.2f" % (tic, sym.close.iloc[-1]))
 
     def get_signal_now(self):
-        res = []
+        res = {}
         for tic, sym in self._symbols.items():
             dec, reason = HeikinAshiStrategy.heikin_ashi_stochrsi_decision(
                 ha=sym.heikin_ashi(), rsi=sym.rsi(), ma5=sym.ema(5), ma10=sym.ema(10)
             )
             if dec != Decision.NONE:
                 # print("[%s] --->>> BUY (%s)" % (tic, reason))
-                res.append({'tic':tic, 'dec':dec, 'reason':reason})
+                try:
+                    res[tic].append({'dec':dec, 'reason':reason})
+                except:
+                    res[tic] = [{'dec':dec, 'reason':reason}]
+                # res.append({'tic':tic, 'dec':dec, 'reason':reason})
 
-        for k,v in self._process_intra():
-            if len(v) == 0:
+        # for k,v in self._process_intra():
+        #     if len(v) == 0:
+        #         continue
+        #     averVol = self._symbols[k].sma(src='volumn', window=50).iloc[-1]
+        #     buyVol, sellVol = v['b'].sum(), v['s'].sum()
+        #     if ( (buyVol + sellVol) / averVol ) >= 1.5:
+        #         buyPrice = (v['b'] * v['p']).sum() / buyVol
+        #         sellPrice = (v['s'] * v['p']).sum() / sellVol
+        #         if buyVol >= sellVol and buyPrice >= sellPrice:
+        #             # print("[%s] --->>> Strong Money flow" % k)
+        #             res.append({'tic':k, 'dec':Decision.BUY, 'reason':'Strong Money flow'})
+        #         if buyVol < sellVol and buyPrice < sellPrice:
+        #             res.append({'tic':k, 'dec':Decision.SELL, 'reason':'Strong Money withdraw'})
+        money = MoneyFlowStrategy.checkMoneyFlowAll(self._symbols)
+        for tic,r in money.items():
+            if r is None:
                 continue
-            averVol = self._symbols[k].sma(src='volumn', window=50).iloc[-1]
-            buyVol, sellVol = v['b'].sum(), v['s'].sum()
-            if ( (buyVol + sellVol) / averVol ) >= 1.5:
-                buyPrice = (v['b'] * v['p']).sum() / buyVol
-                sellPrice = (v['s'] * v['p']).sum() / sellVol
-                if buyVol >= sellVol and buyPrice >= sellPrice:
-                    # print("[%s] --->>> Strong Money flow" % k)
-                    res.append({'tic':k, 'dec':Decision.BUY, 'reason':'Strong Money flow'})
-                if buyVol < sellVol and buyPrice < sellPrice:
-                    res.append({'tic':k, 'dec':Decision.SELL, 'reason':'Strong Money withdraw'})
-
+            cnt = 0
+            for x in r[0]:
+                if x != '':
+                    cnt += 1
+            if cnt > 3 or r[0][-1] != '':
+                try:
+                    res[tic].append({'dec': Decision.BUY, 'reason':r[0]})
+                except:
+                    res[tic] = [{'dec': Decision.BUY, 'reason':r[0]}]
 
         self._signals = res
+        pickle.dump(res, open('data/current_signals.pkl', 'wb'))
+        return res
+
+    def get_halfsession_signal(self):
+        res = {}
+        if self._signals is None:
+            print("**ERROR: previous session is not started yet")
+        tickets = sorted(self._signals.keys())
+        money = MoneyFlowStrategy.checkMoneyFlowAll([self._symbols[x] for x in tickets], halfsess=True)
+        for tic,r in money.items():
+            if r is None:
+                continue
+            cnt = 0
+            for x in r[0]:
+                if x != '':
+                    cnt += 1
+            if cnt > 3 or r[0][-1] != '':
+                try:
+                    res[tic].append({'dec': Decision.BUY, 'reason':r[0]})
+                except:
+                    res[tic] = [{'dec': Decision.BUY, 'reason':r[0]}]
         return res
 
     @property

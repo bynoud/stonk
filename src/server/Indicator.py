@@ -29,8 +29,9 @@ def relative_strength_index(ps: pd.Series, window: int = 14):
     dUp[dUp < 0] = 0
     dDown[dDown > 0] = 0
     rolUp = modified_moving_average(dUp, window)
-    rolDown = modified_moving_average(dDown, window)
+    rolDown = modified_moving_average(dDown.abs(), window)
     rs = rolUp / rolDown
+    print(rs.tail(10))
     rsi = 100.0 - 100.0 / (1.0 + rs)
     return rsi
 

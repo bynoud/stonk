@@ -3,6 +3,7 @@
 venv
 __pycache__
 src/server/data
+src/data
 
 # dependencies
 /node_modules

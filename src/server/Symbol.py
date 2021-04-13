@@ -2,6 +2,7 @@
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import StockAPI
 
 def simple_moving_average(ps: pd.Series, window:int):
     return ps.rolling(window=window, min_periods=window).mean()
@@ -40,6 +41,8 @@ class SymbolHistory:
     def low(self): return self._df['low']
     @property
     def volumn(self): return self._df['volumn']
+    @property
+    def time(self): return self._df['time']
 
     def sma(self, window:int, src:str='close'): 
         return simple_moving_average(self._df[src], window)
@@ -91,7 +94,7 @@ class SymbolHistory:
         dUp[dUp < 0] = 0
         dDown[dDown > 0] = 0
         rolUp = modified_moving_average(dUp, window)
-        rolDown = modified_moving_average(dDown, window)
+        rolDown = modified_moving_average(dDown.abs(), window)
         rs = rolUp / rolDown
         return ( 100.0 - 100.0 / (1.0 + rs))
 
@@ -186,3 +189,32 @@ class SymbolHistory:
         ha['low'] = ha[['_l', 'open', 'close']].min(axis=1)
         return ha[['open', 'close', 'high', 'low']]
 
+class SymbolIntra:
+    def __init__(self, name:str, intra):
+        self._intra = intra
+        if intra is not None:
+            self._matched = intra[intra['mt'] != intra['mt'].shift(1)].reset_index()
+            self._buy = self._matched[self._matched['buy']==1]
+            self._sell = self._matched[self._matched['buy']==0]
+
+    @property
+    def buy(self):
+        return self._buy
+    @property
+    def sell(self):
+        return self._sell
+    @property
+    def buyVol(self):
+        return 1 if self._intra is None else self._buy['mv'].sum()
+    @property
+    def sellVol(self):
+        return 1 if self._intra is None else self._sell['mv'].sum()
+    @property
+    def buyVal(self):
+        return 1 if self._intra is None else (self._buy['mv'] * self._buy['mp']).sum()
+    @property
+    def sellVal(self):
+        return 1 if self._intra is None else (self._sell['mv'] * self._sell['mp']).sum()
+    
+
+    
