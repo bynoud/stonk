@@ -55,7 +55,7 @@ class BacktestSession:
         self.debugMode = debug
         if debug:
             self._symbols = pickle.load(open('data/current_prices.pkl', 'rb'))
-            self._signals = pickle.load(open('data/current_signals.pkl', 'rb'))
+            # self._signals = pickle.load(open('data/current_signals.pkl', 'rb'))
             # self._intra = pickle.load(open('data/current_intra.pkl', 'rb'))
         if not refetchAll:
             self._tickets = pickle.load(open('data/selTickets.pkl', 'rb'))
@@ -78,7 +78,8 @@ class BacktestSession:
                     return (
                         x.len>=100 and 
                         x.sma(src='volumn',window=50).iloc[-1]>=100000 and 
-                        x.close.iloc[-1] > 7.0
+                        2.0 < x.close.iloc[-1] < 60.0 and
+                        len(x.name) == 3 # To remove Derative ticket...
                     )
                 filerFunc = _defaultFilter
             self._symbols = {x.name:x for x in filter(filerFunc, symbols.values())}
@@ -199,7 +200,8 @@ class BacktestSession:
             for x in r[0]:
                 if x != '':
                     cnt += 1
-            if cnt > 3 or r[0][-1] != '':
+            # if cnt > 0:
+            if r[0][-3] != '' or r[0][-2] != '' or r[0][-1] != '':
                 try:
                     res[tic].append({'dec': Decision.BUY, 'reason':r[0]})
                 except:

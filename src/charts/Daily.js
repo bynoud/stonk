@@ -157,7 +157,7 @@ const DailyChart = ({daily}) => {
   }
   const moveLeave = () => { setState({moveX: -1}) }
 
-  // console.log("daily", daily)
+  console.log("daily", daily)
 
   return (
       <div>
@@ -213,6 +213,7 @@ const DailyChart = ({daily}) => {
           unit=""
           // orientation="right"
           stroke="#82ca9d"
+          domain={['auto','auto']}
         />
         <Bar stackId='vol' yAxisId="right" dataKey="buyVol" barSize={5} fill="#70af85" />
         <Bar stackId='vol' yAxisId="right" dataKey="sellVol" barSize={5} fill="#e40017" />
@@ -223,7 +224,7 @@ const DailyChart = ({daily}) => {
 
       <ComposedChart
             width={800}
-            height={150}
+            height={100}
             data={daily}
             syncId="anyId"
             margin={{
@@ -242,10 +243,11 @@ const DailyChart = ({daily}) => {
         {/* <Tooltip /> */}
 
         <Line type="basic" yAxisId="left" dataKey="volRsi" dot={false} stroke="#70af85" />
+        <ReferenceLine y={50} yAxisId='left' />
+        <ReferenceLine y={75} yAxisId='left'/>
 
         <Bar stackId='vol' yAxisId="right" dataKey="volRsiChg" barSize={5} fill="#70af85"
           shape={<PosNegColorBar />}/>
-        <ReferenceLine y={0} yAxisId='right'/>
       </ComposedChart>
       
       {/* <BarChart

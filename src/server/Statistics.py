@@ -3,11 +3,11 @@ import pandas as pd
 import numpy as np
 
 import StockAPI
+from datetime import datetime
 
 def intraMatchedVol(ticket, dates=None, noOpenClose=True):
-    from datetime import datetime
     if dates is None:
-        dates = StockAPI.getTradingDate(30)
+        dates = StockAPI.getTradingDate(2)
     intras = StockAPI.getIntradayHistory(ticket, dates=dates, matchedOnly=True)
     for i in range(len(intras)):
         df = intras[i]
@@ -57,7 +57,43 @@ def intraMatchedVol(ticket, dates=None, noOpenClose=True):
     df['buyPerc'] = (df['buyVol'].rolling(window=40).mean().fillna(0) * 100.0 /
         df['vol'].rolling(window=40).mean().fillna(1)).round(1)
     # df['volSum'] = df['vol'].cumsum()
-    return df[['label','mp','mv','vol','buyVol','sellVol','unkVol','buyPerc']]
+    return df[['label','mp','mv','vol','buyVol','sellVol','unkVol','buyPerc','buy']]
+
+def intraMatchedVol2(ticket, dates=None, noOpenClose=True):
+    df = intraMatchedVol(ticket, dates, noOpenClose)
+    res = []
+    idx = 0
+    for i in range(len(df)):
+        d = df.iloc[i]
+        vol = int(d['vol'])
+        first = True
+        while vol > 0:
+            if vol > 40000:
+                deep, cnt = 5, 20000
+            elif vol > 20000:
+                deep, cnt = 4, 10000
+            elif vol > 10000:
+                deep, cnt = 3, 5000
+            elif vol > 5000:
+                deep, cnt = 2, 2000
+            elif vol > 2000:
+                deep, cnt = 1, 1000
+            elif vol > 1000:
+                deep, cnt = 0, 1000
+            else:
+                deep, cnt = 0, vol
+
+            res.append({
+                'idx': idx,
+                'vol': cnt, 'weight': deep,
+                'label': d['label'] if first else '',
+                'buy': int(d['buy']), 'price': d['mp']
+                })
+            first = False
+            vol -= cnt
+            idx += 1
+    print(len(res))
+    return res
 
 def intraSum(intra):
     df = intra.copy()
@@ -102,18 +138,20 @@ def intraSum(intra):
     return res
 
 def volRsi(buyVol, sellVol):
-    delta = buyVol - sellVol
+    # chg = (buyVol - sellVol) / (buyVol + sellVol)
+    # delta = chg
+    delta = buyVol - sellVol # * 1.1 # give SellVol a 10% advantage?
     dUp, dDown = delta.copy(), delta.copy()
     dUp[dUp < 0] = 0
     dDown[dDown > 0] = 0
-    rolUp = dUp.rolling(window=14).mean()
-    rolDown = dDown.rolling(window=14).mean().abs()
+    rolUp = dUp.rolling(window=14, min_periods=1).mean()
+    rolDown = dDown.rolling(window=14, min_periods=1).mean().abs()
     rs = rolUp / rolDown
     # print(rs.tail(10))
     return ( 100.0 - 100.0 / (1.0 + rs))
 
 def dailyStat(symbol, lookback=100, intras=None):
-    period = lookback + 10
+    period = lookback + 14
     dates = symbol.time.iloc[-period:].reset_index(drop=True)
     if intras is None:
         intras = StockAPI.getIntradayHistory(symbol.name, dates=dates, matchedOnly=True)
@@ -146,6 +184,7 @@ def dailyStat(symbol, lookback=100, intras=None):
             df.at[i, 'sellVol'] = sellVol
             df.at[i, 'sellPrice'] = sellPrice
             
+    df['buySellVolRatio'] = df['buyVol'] / df['sellVol']
     df['buySellPriceDiff'] = df['buyPrice'] - df['sellPrice']
     df['rsi'] = symbol.rsi().iloc[-period:].reset_index(drop=True)
     df['rsiChg'] = df['rsi'].diff() # * 100.0 / df['rsi'].shift(1)

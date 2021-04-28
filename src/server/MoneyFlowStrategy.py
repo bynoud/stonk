@@ -3,12 +3,13 @@ import numpy as np
 import pandas as pd
 import StockAPI
 from Symbol import SymbolHistory
+import Statistics
 
 # Some of the point you may want to enter:
 #   + Big MoneyIn, or a BuyPower when price drop after trend had been breakout, average BuyPower >= 30
 #   + BuyPower & MoneyIn happend witn 5 days, and Average BuyPower is >= 50%
 #   + 3 consecutive BuyPower, Average BuyPower >= 30%
-def checkMoneyFlow(symbol: SymbolHistory, lookback=20, intras=None, halfsess=False):
+def checkMoneyFlowOld(symbol: SymbolHistory, lookback=20, intras=None, halfsess=False):
     period = lookback + 10
     dates = symbol.time.iloc[-period:].reset_index(drop=True)
     if intras is None:
@@ -64,6 +65,34 @@ def checkMoneyFlow(symbol: SymbolHistory, lookback=20, intras=None, halfsess=Fal
         signal.append(s)
     
     return signal, df
+
+def checkMoneyFlow(symbol: SymbolHistory, lookback=20, intras=None, halfsess=False):
+    period = lookback+14
+    # dates = symbol.time.iloc[-period:].reset_index(drop=True)
+
+    priceChg = symbol.close.diff().iloc[-period:].reset_index(drop=True)
+    dailyStat = Statistics.dailyStat(symbol, lookback=lookback)
+
+    signal = []
+    for i in range(14, period):
+        p = dailyStat.loc[i]
+        s = ''
+        if priceChg[i] < 0 and p['volRsiChg'] >= 20:
+            s += 'VolRsiBigIncWhenPriceDrop '
+        if priceChg[i] < 0 and p['volRsiChg'] > 8 and p['volRsi'] > 60:
+            s += 'VolRsiRecoverWhenPriceDrop '
+        if p['volRsiChg'] >= 15 and p['volRsi'] > 50:
+            s += 'VolRsiBigInc>50 ' 
+        if all([p['volRsiChg'] > 0, dailyStat.loc[i-1]['volRsiChg'] > 0,
+                priceChg[i] < 0, priceChg[i-1] < 0]):
+            s += 'VolRsiPosDiver '
+        if p['volRsiChg'] - dailyStat.loc[i-1]['volRsiChg'] >= 20:
+            s += 'VolRsiBigSwing '
+        # if p['volRsi'] > 85:
+        #     s += 'VolRsi>85'
+        signal.append(s)
+    
+    return signal, dailyStat
 
 def checkMoneyFlowAll(symbols, lookback=20, halfsess=False):
     res = {}

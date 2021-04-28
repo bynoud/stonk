@@ -5,6 +5,11 @@ import numpy as np
 # from  Symbol import SymbolHistory, simple_moving_average
 import StockDB
 
+_OPT = {
+    'intraServer': 'vcsc'
+    # 'intraServer': 'vdsc',
+}
+
 class Error(Exception):
     pass
 
@@ -227,54 +232,131 @@ def _intraProcess(df, ceil, floor):
 
     return df
 
-# def intradaySearch_vdsc(tickets,date=''):
-#     if date == '': date = datetime.datetime.now().strftime("%d/%m/%Y")
-#     print('date', date)
-#     url = 'https://livedragon.vdsc.com.vn/general/intradaySearch.rv'
-#     r = requests.get(url)
-#     if r.status_code != 200:
-#         raise Error('Failed to get "%s"' % url)
-#     ck = r.headers['Set-Cookie']
-#     res = {}
-#     for tic in tickets:
-#         r = requests.post(url, 
-#             data={'stockCode':tic, 'boardDate': date},
-#             headers={'Cookie':ck}
-#         )
-#         if r.status_code != 200:
-#             raise Error('Failed to get Intra for "%s": %s' % (tic, r.reason))
-#         txt = r.content.decode('utf-8')
-#         if txt == '':
-#             res[tic] = None
-#         else:
-#             try:
-#                 j = json.loads(txt)
-#             except json.decoder.JSONDecodeError:
-#                 raise Error('Failed to decode Intra for "%s": %s' % (tic, txt))
-#             if not j['success']:
-#                 raise Error('Server return failed for Intra "%s": %s' % (tic, j['message']))
-#             intra = pd.DataFrame(index=range(len(j['list'])),
-#                 columns='mp mv mt time ov1 ov2 ov3 op1 op2 op3 bv1 bv2 bv3 bp1 bp2 bp3'.split())
-#             for i,v in enumerate(j['list']):
-#                 intra.at[i] = {
-#                     'time': v['TradeTime'],
-#                     'mp': v['MatchedPrice'], 'mv': v['MatchedVol'], 'mt': v['MatchedTotalVol'],
-#                     'ov1': v['OfferVol1'], 'ov2': v['OfferVol2'], 'ov3': v['OfferVol3'],
-#                     'op1': v['OfferPrice1'], 'op2': v['OfferPrice2'], 'op3': v['OfferPrice3'],
-#                     'bv1': v['BidVol1'], 'bv2': v['BidVol2'], 'bv3': v['BidVol3'],
-#                     'bp1': v['BidPrice1'], 'bp2': v['BidPrice2'], 'bp3': v['BidPrice3'],
-#                 }
-#             res[tic] = intraProcess(intra)
-#     return res
+def intradaySearch_vdsc(ticket, date, cookie=''):
+    if cookie == '':
+        cookie = _getCookie()
+    dateStr = date.strftime("%d/%m/%Y")
+    r = requests.post('https://livedragon.vdsc.com.vn/general/intradaySearch.rv', 
+        data={'stockCode':ticket, 'boardDate': dateStr},
+        headers={'Cookie':cookie}
+    )
+    if r.status_code != 200:
+        raise Error('Failed to get Intra for "%s": %s' % (ticket, r.reason))
+    txt = r.content.decode('utf-8')
+    if txt == '':
+        return None
+
+    try:
+        j = json.loads(txt)
+    except json.decoder.JSONDecodeError:
+        raise Error('Failed to decode Intra for "%s": %s' % (ticket, txt))
+    if not j['success']:
+        raise Error('Server return failed for Intra "%s": %s' % (ticket, j['message']))
+
+    if len(j['list']) == 0:
+        return None # If content is already empty, just save None, so later retry dont need to refetch
+
+    intra = pd.DataFrame(index=range(len(j['list'])),
+        columns='mp mv mt time ov1 ov2 ov3 op1 op2 op3 bv1 bv2 bv3 bp1 bp2 bp3'.split())
+    ceil, floor = j['list'][0]['CeiPrice'], j['list'][0]['FlrPrice']
+    for i,v in enumerate(j['list']):
+        intra.at[i] = {
+            'time': v['TradeTime'],
+            'mp': v['MatchedPrice'], 'mv': v['MatchedVol'], 'mt': v['MatchedTotalVol'],
+            'ov1': v['OfferVol1'], 'ov2': v['OfferVol2'], 'ov3': v['OfferVol3'],
+            'op1': v['OfferPrice1'], 'op2': v['OfferPrice2'], 'op3': v['OfferPrice3'],
+            'bv1': v['BidVol1'], 'bv2': v['BidVol2'], 'bv3': v['BidVol3'],
+            'bp1': v['BidPrice1'], 'bp2': v['BidPrice2'], 'bp3': v['BidPrice3'],
+        }
+    return _intraProcess(intra, ceil, floor)
 
 def _getCookie():
     # print('date', date)
-    r = requests.get('http://priceboard1.vcsc.com.vn/vcsc/intraday')
+    if _OPT['intraServer'] == 'vcsc':
+        url = 'http://priceboard1.vcsc.com.vn/vcsc/intraday'
+    elif _OPT['intraServer'] == 'vdsc':
+        url = 'https://livedragon.vdsc.com.vn/general/intradaySearch.rv'
+    else:
+        raise Error('Wrong Intra Server option: %s' % _OPT['intraServer'])
+    r = requests.get(url)
     if r.status_code != 200:
         raise Error('Failed to get')
     return r.headers['Set-Cookie']
 
+def intradaySearch_vcsc(tic, date, cookie=''):
+    if cookie == '':
+        cookie = _getCookie()
+    dateStr = date.strftime("%Y%m%d")
+    # print('Se', tic, date, cookie)
+    r = requests.post('http://priceboard1.vcsc.com.vn/vcsc/IntradayDataAjaxService?time=%d' % datetime.datetime.now().timestamp(), 
+        data={'data': '{"command":"init","msgid":1,"data":["%s","%s"]}' % (tic, dateStr)},
+        headers={'Cookie':cookie, 
+            'Host':'priceboard1.vcsc.com.vn', 
+            'Origin':'http://priceboard1.vcsc.com.vn',
+            'Referer':'http://priceboard1.vcsc.com.vn/vcsc/intraday'}
+    )
+    if r.status_code != 200:
+        raise Error('Failed to get Intra for "%s": %s' % (tic, r.reason))
+    txt = r.content.decode('utf-8')
+    if txt == '':
+        return None
+
+    try:
+        j = json.loads(txt)
+    except json.decoder.JSONDecodeError:
+        raise Error('Failed to decode Intra for "%s": %s' % (tic, txt))
+
+    if len(j['content']) == 0:
+        return None # If content is already empty, just save None, so later retry dont need to refetch
+    
+    intra = pd.DataFrame(index=range(len(j['content'])),
+        columns='mp mv mt time ov1 ov2 ov3 op1 op2 op3 bv1 bv2 bv3 bp1 bp2 bp3'.split())
+    def v2i(s):
+        return int(s.replace(',','')) * 10
+    def p2f(s):
+        return 0.0 if (s in ['ATC', 'ATO']) else float(s)
+    ceil, floor = p2f(j['content'][0]['cei']), p2f(j['content'][0]['flo'])
+    for i,v in enumerate(j['content']):
+        intra.at[i] = {
+            'time': v['time'],
+            'mp': p2f(v['mat']), 'mv': v2i(v['mvo']), 'mt': v2i(v['tmv']),
+            'ov1': v2i(v['sv1']), 'ov2': v2i(v['sv2']), 'ov3': v2i(v['sv3']),
+            'op1': p2f(v['sp1']), 'op2': p2f(v['sp2']), 'op3': p2f(v['sp3']),
+            'bv1': v2i(v['bv1']), 'bv2': v2i(v['bv2']), 'bv3': v2i(v['bv3']),
+            'bp1': p2f(v['bp1']), 'bp2': p2f(v['bp2']), 'bp3': p2f(v['bp3']),
+        }
+    return _intraProcess(intra, ceil, floor)
+
 def intradaySearch(tic, date, cookie='', dbCursor=None):
+    date = datetime.datetime.fromtimestamp(date)
+    dateStr = date.strftime("%Y%m%d")
+    fname = 'data/intras/%s_%s.pkl' % (tic, dateStr)
+    # date = datetime.strptime(dateStr + ' 07', '%Y%m%d %H').timestamp() # This is to matched with tradingDate response
+    try:
+        intra = pickle.load(open(fname, 'rb'))
+        # intra = StockDB.getIntra(tic, date, dbCursor)
+        return intra
+    except:
+        pass
+
+    delta = datetime.datetime.now() - date
+
+    if cookie == '':
+        cookie = _getCookie()
+    if _OPT['intraServer'] == 'vcsc':
+        intra = intradaySearch_vcsc(tic, date, cookie)
+    else:
+        intra = intradaySearch_vdsc(tic, date, cookie)
+    
+    # only save the Intra if this is fetched after 3PM
+    # print(now, now.hour)
+    if delta.days > 0 or delta.seconds > 28800:
+        pickle.dump(intra, open(fname, 'wb'))
+        # StockDB.saveIntra(tic, intra, date, dbCursor)
+    return intra
+
+
+def intradaySearch_worked_full(tic, date, cookie='', dbCursor=None):
     date = datetime.datetime.fromtimestamp(date)
     dateStr = date.strftime("%Y%m%d")
     fname = 'data/intras/%s_%s.pkl' % (tic, dateStr)
@@ -333,9 +415,9 @@ def intradaySearch(tic, date, cookie='', dbCursor=None):
             }
         intra = _intraProcess(intra, ceil, floor)
 
-    # only save the Intra if this is fetched after 5PM
+    # only save the Intra if this is fetched after 3PM
     # print(now, now.hour)
-    if delta.days > 0 or delta.seconds > 36000:
+    if delta.days > 0 or delta.seconds > 28800:
         pickle.dump(intra, open(fname, 'wb'))
         # StockDB.saveIntra(tic, intra, date, dbCursor)
     return intra

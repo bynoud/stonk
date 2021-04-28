@@ -3,6 +3,7 @@ from flask_cors import CORS
 
 from apscheduler.schedulers.background import BackgroundScheduler
 import time, datetime, atexit, pickle
+import pandas as pd
 
 from StrategySession import BacktestSession, Decision
 from Symbol import SymbolHistory
@@ -75,6 +76,19 @@ def getIntra():
     # except Exception as e:
     #     return {'status':'bad', 'reason': 'Failed to get intra "%s"' % e}
 
+@app.route('/today', methods = ['POST'])
+def getToday():
+    params = request.get_json()
+    try:
+        ticket = params['tic']
+    except:
+        return {'status':'bad', 'reason':'No tic field is found'}
+    # try:
+    intra = Statistics.intraMatchedVol2(ticket)
+    return {'status':'ok', 'payload':intra}
+    # except Exception as e:
+    #     return {'status':'bad', 'reason': 'Failed to get intra "%s"' % e}
+
 @app.route('/daily', methods = ['POST'])
 def getDaily():
     params = request.get_json()
@@ -92,6 +106,22 @@ def getDaily():
     return {'status':'ok', 'payload': daily.to_dict(orient='records')}
     # except Exception as e:
     #     return {'status':'bad', 'reason':'Failed %s'%e}
+
+@app.route('/today-test', methods = ['POST'])
+def getTodayTest():
+    params = request.get_json()
+    try:
+        ticket = params['tic']
+    except:
+        return {'status':'bad', 'reason':'No tic field is found'}
+    try:
+        sym = pickle.load(open('data/tmp_price_%s.pkl' % ticket, 'rb'))
+    except:
+        # sym = SymbolHistory(ticket, StockAPI.getPriceHistory(ticket, 365*2+50))
+        sym = StockAPI.getPriceHistory(ticket, 365)
+        pickle.dump(sym, open('data/tmp_price_%s.pkl' % ticket, 'wb'))
+    df = pd.DataFrame(sym)
+    return {'status':'ok', 'payload': df.to_dict(orient='records')}
 
 if __name__ == '__main__':
     scheduler = BackgroundScheduler() 

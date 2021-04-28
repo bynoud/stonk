@@ -1,4 +1,5 @@
 # run this : exec(open("runsess.py").read())
+import pickle
 import StrategySession
 
 def signPrint(signals):
@@ -19,7 +20,10 @@ def signPrint(signals):
             res += '[%s]\n%s' % (tic, cur)
     return res
 
-ss = StrategySession.BacktestSession()
+# ss = StrategySession.BacktestSession()
+ss = StrategySession.BacktestSession(debug=True)
+# ss._symbols = pickle.load(open('data/tmp_prices_27042021.pkl','rb'))
 ss.start()
+# ss._signals = None
 signals = ss.signals
 print(signPrint(signals))
