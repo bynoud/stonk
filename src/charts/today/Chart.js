@@ -8,9 +8,10 @@ import { timeFormat } from "d3-time-format";
 import { ChartCanvas, Chart } from "react-stockcharts";
 import {
 	BarSeries,
-	VolumeProfileSeries,
+	// VolumeProfileSeries,
 	CandlestickSeries,
 } from "react-stockcharts/lib/series";
+import VolumeProfileSeries from './VolumeProfileSeries';
 import { XAxis, YAxis } from "react-stockcharts/lib/axes";
 import {
 	CrossHairCursor,
@@ -35,6 +36,7 @@ class VolumeProfileBySessionChart extends React.Component {
 		const { type, data: initialData, width, ratio } = this.props;
 
 		const calculatedData = changeCalculator(initialData);
+		console.log('data', initialData, calculatedData, changeCalculator)
 		const xScaleProvider = discontinuousTimeScaleProvider
 			.inputDateAccessor(d => d.date);
 		const {
@@ -94,7 +96,9 @@ class VolumeProfileBySessionChart extends React.Component {
 						orient="right"
 						displayFormat={format(".2f")} />
 
-					<VolumeProfileSeries bySession orient="right" showSessionBackground />
+					<VolumeProfileSeries bySession orient="right" showSessionBackground
+					// sessionStart={({ d, i, plotData }) => i > 0 && d.date.getDay() === 1}
+					 />
 					<CandlestickSeries />
 					<EdgeIndicator itemType="last" orient="right" edgeAt="right"
 						yAccessor={d => d.close} fill={d => d.close > d.open ? "#6BA583" : "#FF0000"}/>

@@ -6,12 +6,69 @@ import numpy as np
 import StockDB
 
 _OPT = {
-    'intraServer': 'vcsc'
-    # 'intraServer': 'vdsc',
+    # 'intraServer': 'vcsc',
+    'intraServer': 'vdsc',
+    'agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.93 Safari/537.36',
 }
+
+
 
 class Error(Exception):
     pass
+
+class IntraServer:
+    def __init__(self, srv: str, dbDir='data/intras'):
+        self.srv = srv
+        self._dir = dbDir
+        self._retry = 5
+        self._cookie = ''
+        self.renewCookie()
+
+    def renewCookie(self):
+        # print('date', date)
+        self._cookie = _getCookie(self.srv)
+
+    def intraday(self, ticket: str, date, dontsave=False, refetch=False):
+        if isinstance(date, str):
+            dateStr = date
+            date = datetime.datetime.strptime(dateStr + ' 07', '%Y%m%d %H') # This is to matched with tradingDate response
+        elif isinstance(date, int):
+            date = datetime.datetime.fromtimestamp(date)
+            dateStr = date.strftime("%Y%m%d")
+        else:
+            dateStr = date.strftime("%Y%m%d")
+
+        # print('Getting intraday from %s %s %s' % (self.srv, ticket, dateStr))
+
+        fname = '%s/%s_%s.pkl' % (self._dir, ticket, dateStr)
+        if not refetch:
+            try:
+                intra = pickle.load(open(fname, 'rb'))
+                return intra
+            except:
+                pass
+
+        delta = datetime.datetime.now() - date
+
+        ok = False
+        while not ok:
+            try:
+                if self.srv == 'vcsc':
+                    intra = intradaySearch_vcsc(ticket, date, self._cookie)
+                else:
+                    intra = intradaySearch_vdsc(ticket, date, self._cookie)
+                ok = True
+            except Exception as e:
+                self._retry -= 1
+                if self._retry <= 0: raise e
+                self.renewCookie()
+        
+        # only save the Intra if this is fetched after 3PM
+        # print(now, now.hour)
+        if not dontsave and (delta.days > 0 or delta.seconds > 28800):
+            pickle.dump(intra, open(fname, 'wb'))
+            # StockDB.saveIntra(tic, intra, date, dbCursor)
+        return intra
 
 def getAllTickets(exchange: str = 'hose hnx'):
     exchange = exchange.lower().split()
@@ -211,7 +268,14 @@ def intraMatchedOnly(df):
     return df[df['mt'] != df['mt'].shift(1)].reset_index()
     
 def _intraProcess(df, ceil, floor):
-    df = df.loc[(df['mt']==0).idxmin():].reset_index() # drop ATO phase
+    # Sometime there's some weird information happend before 9AM
+    try:
+        df['time'] = pd.to_datetime(df['time'], format='%H:%M:%S')
+    except ValueError:
+        df['time'] = pd.to_datetime(df['time'], format='%H:%M:%S.%f')
+
+    df = df[df['time'].dt.hour >= 9]
+    df = df.loc[(df['mt']==0).idxmin():].reset_index() # drop pre-ATO phase
     # sel = df[df['mt'] != df['mt'].shift(1)].reset_index()  # only check where total matched is changed
     df1 = df.shift(1)
     for i in range(1,4):
@@ -223,22 +287,28 @@ def _intraProcess(df, ceil, floor):
     df.loc[(df['mp'] < df1['op1']) & (df['mp'] > df1['bp1']), ['buy']] = -1 # unknow direction
 
     # at ATO
-    sel = df.iloc[0]
-    df.at[0, 'buy'] = 0 if sel['mp'] >= sel['op1'] else 1 if sel['mp'] <= sel['bp1'] else -1
+    # sel = df.iloc[0]
+    # df.at[0, 'buy'] = 0 if sel['mp'] >= sel['op1'] else 1 if sel['mp'] <= sel['bp1'] else -1
+    # --- Set it to unknow
+    df.at[0, 'buy'] = -1
 
     # at ATC
-    sel = df.iloc[-1]
-    df.at[len(df)-1, 'buy'] = 0 if sel['mp'] >= sel['op1'] else 1 if sel['mp'] <= sel['bp1'] else -1
+    # sel = df.iloc[-1]
+    # df.at[len(df)-1, 'buy'] = 0 if sel['mp'] >= sel['op1'] else 1 if sel['mp'] <= sel['bp1'] else -1
+    df.at[len(df)-1, 'buy'] = -1
 
     return df
 
 def intradaySearch_vdsc(ticket, date, cookie=''):
     if cookie == '':
-        cookie = _getCookie()
-    dateStr = date.strftime("%d/%m/%Y")
+        cookie = _getCookie('vdsc')
+    if isinstance(date, str):
+        dateStr = date
+    else:
+        dateStr = date.strftime("%d/%m/%Y")
     r = requests.post('https://livedragon.vdsc.com.vn/general/intradaySearch.rv', 
         data={'stockCode':ticket, 'boardDate': dateStr},
-        headers={'Cookie':cookie}
+        headers={'Cookie':cookie, 'User-Agent': _OPT['agent']}
     )
     if r.status_code != 200:
         raise Error('Failed to get Intra for "%s": %s' % (ticket, r.reason))
@@ -251,7 +321,8 @@ def intradaySearch_vdsc(ticket, date, cookie=''):
     except json.decoder.JSONDecodeError:
         raise Error('Failed to decode Intra for "%s": %s' % (ticket, txt))
     if not j['success']:
-        raise Error('Server return failed for Intra "%s": %s' % (ticket, j['message']))
+        return None # No database found
+        # raise Error('Server return failed for Intra "%s" (%s): %s' % (ticket, dateStr, j['message']))
 
     if len(j['list']) == 0:
         return None # If content is already empty, just save None, so later retry dont need to refetch
@@ -270,22 +341,24 @@ def intradaySearch_vdsc(ticket, date, cookie=''):
         }
     return _intraProcess(intra, ceil, floor)
 
-def _getCookie():
+def _getCookie(srv=None):
+    if srv is None:
+        srv = _OPT['intraServer']
     # print('date', date)
-    if _OPT['intraServer'] == 'vcsc':
+    if srv == 'vcsc':
         url = 'http://priceboard1.vcsc.com.vn/vcsc/intraday'
-    elif _OPT['intraServer'] == 'vdsc':
+    elif srv == 'vdsc':
         url = 'https://livedragon.vdsc.com.vn/general/intradaySearch.rv'
     else:
-        raise Error('Wrong Intra Server option: %s' % _OPT['intraServer'])
-    r = requests.get(url)
+        raise Error('Wrong Intra Server option: %s' % srv)
+    r = requests.get(url, headers={'User-Agent': _OPT['agent']})
     if r.status_code != 200:
         raise Error('Failed to get')
     return r.headers['Set-Cookie']
 
 def intradaySearch_vcsc(tic, date, cookie=''):
     if cookie == '':
-        cookie = _getCookie()
+        cookie = _getCookie('vcsc')
     dateStr = date.strftime("%Y%m%d")
     # print('Se', tic, date, cookie)
     r = requests.post('http://priceboard1.vcsc.com.vn/vcsc/IntradayDataAjaxService?time=%d' % datetime.datetime.now().timestamp(), 
@@ -293,7 +366,8 @@ def intradaySearch_vcsc(tic, date, cookie=''):
         headers={'Cookie':cookie, 
             'Host':'priceboard1.vcsc.com.vn', 
             'Origin':'http://priceboard1.vcsc.com.vn',
-            'Referer':'http://priceboard1.vcsc.com.vn/vcsc/intraday'}
+            'Referer':'http://priceboard1.vcsc.com.vn/vcsc/intraday',
+            'User-Agent': _OPT['agent']}
     )
     if r.status_code != 200:
         raise Error('Failed to get Intra for "%s": %s' % (tic, r.reason))
@@ -327,7 +401,7 @@ def intradaySearch_vcsc(tic, date, cookie=''):
         }
     return _intraProcess(intra, ceil, floor)
 
-def intradaySearch(tic, date, cookie='', dbCursor=None):
+def intradaySearch_old(tic, date, cookie='', dbCursor=None):
     date = datetime.datetime.fromtimestamp(date)
     dateStr = date.strftime("%Y%m%d")
     fname = 'data/intras/%s_%s.pkl' % (tic, dateStr)
@@ -354,6 +428,68 @@ def intradaySearch(tic, date, cookie='', dbCursor=None):
         pickle.dump(intra, open(fname, 'wb'))
         # StockDB.saveIntra(tic, intra, date, dbCursor)
     return intra
+
+
+# _SRV = {
+#     'vcsc': IntraServer('vcsc'),
+#     'vdsc': IntraServer('vdsc'),
+# }
+
+def intradaySearch(sym, svrs, idx=-1):
+    tic = sym.name
+    date = datetime.datetime.fromtimestamp(sym.time.iloc[idx])
+    dateStr = date.strftime("%Y%m%d")
+    fname = 'data/intras/%s_%s.pkl' % (tic, dateStr)
+    # date = datetime.strptime(dateStr + ' 07', '%Y%m%d %H').timestamp() # This is to matched with tradingDate response
+    try:
+        intra = pickle.load(open(fname, 'rb'))
+        # intra = StockDB.getIntra(tic, date, dbCursor)
+        return intra
+    except:
+        pass
+
+    delta = datetime.datetime.now() - date
+    dayPassed = delta.days > 0 or delta.seconds > 28800
+
+    dailyVol = sym.volumn.iloc[idx]
+    
+    def volOk(v1, v0):
+        if 0.98 < (v1/v0) < 1.02:
+            return True
+        return False
+    def intraOk(intra):
+        if intra is None:
+            return False
+        vol = intraMatchedOnly(intra)['mv'].sum()
+        if volOk(vol, dailyVol):
+            return True
+        else:
+            volMt = intra['mt'].iloc[-1]
+            if volOk(volMt, dailyVol):
+                intra['mv'] = intra['mt'].diff()
+                return True
+        return False
+
+    intra1 = svrs['vdsc'].intraday(tic, date, dontsave=True, refetch=True)
+    if dayPassed and not intraOk(intra1):
+        intra1 = svrs['vcsc'].intraday(tic, date, dontsave=True, refetch=True)
+        if not intraOk(intra1):
+            vol = intraMatchedOnly(intra1)['mv'].sum()
+            volMt = intra1['mt'].iloc[-1]
+            if vol == volMt and (dailyVol/vol) == 10:
+                # VCSC sometime got this wrong in 10 folds...
+                intra1['mv'] = intra1['mv'] * 10
+                intra1['mt'] = intra1['mt'] * 10
+            else:
+                print("Invalid intra. discard it")
+                intra1 = None
+    
+    # only save the Intra if this is fetched after 3PM
+    # print(now, now.hour)
+    if dayPassed:
+        pickle.dump(intra1, open(fname, 'wb'))
+        # StockDB.saveIntra(tic, intra, date, dbCursor)
+    return intra1
 
 
 def intradaySearch_worked_full(tic, date, cookie='', dbCursor=None):
@@ -422,19 +558,20 @@ def intradaySearch_worked_full(tic, date, cookie='', dbCursor=None):
         # StockDB.saveIntra(tic, intra, date, dbCursor)
     return intra
 
-def fetchIntradayAllTickets(tickets,date=None):
-    if date is None:
-        date = datetime.datetime.now()
-    print('Getting Intra on %s for %d tickets ...' % (date, len(tickets)), end='', flush=True)
-    date = datetime.datetime.strptime(date.strftime("%Y%m%d") + ' 07', '%Y%m%d %H').timestamp() # to match date return by getTradningDate
+def fetchIntradayAllSymbols(symbols):
+    print('Getting Intra for %d symbols ...' % (len(symbols)), end='', flush=True)
     # print('date', date)
-    cookie = _getCookie()
     res = {}
+    svrs = {
+        'vcsc': IntraServer('vcsc'),
+        'vdsc': IntraServer('vdsc'),
+    }
+
     # cursor = StockDB.getCursor()
     cnt = 10
-    for tic in tickets:
+    for sym in symbols:
         # res[tic] = intradaySearch(tic, date, cookie, cursor)
-        res[tic] = intradaySearch(tic, date, cookie)
+        res[sym.name] = intradaySearch(sym, svrs)
         cnt -= 1
         if cnt <= 0:
             print('.', end='', flush=True)
@@ -443,34 +580,38 @@ def fetchIntradayAllTickets(tickets,date=None):
     # StockDB.close(cursor)
     # return res
 
-def getIntradayHistory(ticket, dayNum=365*2+50, dates=None, matchedOnly=False):
-    import StockAPI
-    if dates is None:
-        dates = StockAPI.getTradingDate(dayNum)
+def getIntradayHistory(symbol, lookback=20, matchedOnly=False):
+    if lookback > symbol.len:
+        lookback = symbol.len
     res = []
-    print('Getting Intra History of "%s" in %d days ...' % (ticket, len(dates)), end='', flush=True)
+    print('Getting Intra History of "%s" in %d days ...' % (symbol.name, lookback), end='', flush=True)
     cnt = 10
     # cursor = StockDB.getCursor()
+    svrs = {
+        'vcsc': IntraServer('vcsc'),
+        'vdsc': IntraServer('vdsc'),
+    }
 
     # while retry > 0:
-    cookie = _getCookie()
     failed = 0
-    for i in range(len(dates)-1, -1, -1):
+    for i in range(lookback):
         # dateStr = datetime.datetime.fromtimestamp(dates[i]).strftime("%Y%m%d")
         # intra = intradaySearch(ticket, dates[i], cookie, cursor)
-        intra = intradaySearch(ticket, dates[i], cookie)
+        intra = intradaySearch(symbol, svrs, -i-1)
         if intra is None:
             failed += 1
             if failed > 5: # result for some day may not avaiable?!?
                 break # no more result available
-        elif matchedOnly:
-            intra = intraMatchedOnly(intra)
+        else:
+            failed = 0
+            if matchedOnly:
+                intra = intraMatchedOnly(intra)
         res.insert(0, intra)
         cnt -= 1
         if cnt <= 0:
             print('.',end='',flush=True)
             cnt = 10
-    for i in range(len(dates)-len(res)):
+    for i in range(lookback-len(res)):
         res.insert(0, None)
     print('Done')
     # StockDB.close(cursor)

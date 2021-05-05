@@ -13,7 +13,7 @@ def checkMoneyFlowOld(symbol: SymbolHistory, lookback=20, intras=None, halfsess=
     period = lookback + 10
     dates = symbol.time.iloc[-period:].reset_index(drop=True)
     if intras is None:
-        intras = StockAPI.getIntradayHistory(symbol.name, dates=dates)
+        intras = StockAPI.getIntradayHistory(symbol, period)
 
     close = symbol.close.iloc[-period:].reset_index(drop=True)
     df = pd.DataFrame({
@@ -67,14 +67,15 @@ def checkMoneyFlowOld(symbol: SymbolHistory, lookback=20, intras=None, halfsess=
     return signal, df
 
 def checkMoneyFlow(symbol: SymbolHistory, lookback=20, intras=None, halfsess=False):
-    period = lookback+14
     # dates = symbol.time.iloc[-period:].reset_index(drop=True)
 
-    priceChg = symbol.close.diff().iloc[-period:].reset_index(drop=True)
+    rsi = symbol.rsi().iloc[-lookback:].reset_index(drop=True)
+    priceChg = symbol.close.diff().iloc[-lookback:].reset_index(drop=True)
+    date = pd.to_datetime(symbol.time.iloc[-lookback:].reset_index(drop=True), unit='s')
     dailyStat = Statistics.dailyStat(symbol, lookback=lookback)
 
     signal = []
-    for i in range(14, period):
+    for i in range(5,lookback):
         p = dailyStat.loc[i]
         s = ''
         if priceChg[i] < 0 and p['volRsiChg'] >= 20:
@@ -88,8 +89,27 @@ def checkMoneyFlow(symbol: SymbolHistory, lookback=20, intras=None, halfsess=Fal
             s += 'VolRsiPosDiver '
         if p['volRsiChg'] - dailyStat.loc[i-1]['volRsiChg'] >= 20:
             s += 'VolRsiBigSwing '
+
+        # if p['volRsi'] > 95:
+        #     incCnt = 0
+        #     for j in range(5):
+        #         if dailyStat.loc[i-j]['volRsiChg'] > 0: incCnt += 1
+        #     if incCnt > 3:
+        #         s += 'IncrHighVolRSI '
+
+        # if i > 10:
+        #     incCnt = 0
+        #     for j in range(10):
+        #             if dailyStat.loc[i-j]['volRsiChg'] > 0: incCnt += 1
+        #     if incCnt > 8:
+        #         s += 'VolRSILongStreakInc '
+        # if rsi.loc[i-1] < 30 and rsi.loc[i-1] < rsi.loc[i] and p['volRsiChg'] > 0:
+        #     s += 'RSI<30ButRecover '
+
         # if p['volRsi'] > 85:
         #     s += 'VolRsi>85'
+        if s != '':
+            s = '%s : %s' % (date[i].strftime('%Y/%m/%d'), s)
         signal.append(s)
     
     return signal, dailyStat

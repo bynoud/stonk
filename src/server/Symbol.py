@@ -25,6 +25,7 @@ class SymbolHistory:
     def __init__(self, name:str, price):
         self._name = name
         self._df = pd.DataFrame(price)
+        self._dateIdx = {v:i for i,v in enumerate(price['time'])}
         self._len = len(price['close'])
 
     @property
@@ -43,6 +44,14 @@ class SymbolHistory:
     def volumn(self): return self._df['volumn']
     @property
     def time(self): return self._df['time']
+
+    def atDate(self, date):
+        try:
+            return self._df.iloc[self._dateIdx[date]]
+        except (IndexError, KeyError):
+            # print('something wrong atDate %s %s' % (self.name, date))
+            # exit()
+            return None
 
     def sma(self, window:int, src:str='close'): 
         return simple_moving_average(self._df[src], window)

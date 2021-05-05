@@ -570,3 +570,182 @@ def getIntra(ticket, date):
 # cursor = conn.cursor()
 # cursor.execute("SELECT * FROM Intra WHERE ticket = 'AAA' AND date = 1614297600")
 # res = cursor.fetchall()
+
+def intradayRecheck():
+    import re, os, pickle
+    from datetime import datetime
+    import StockAPI, Symbol
+
+    folderName = 'data/intras'
+    folderName2 = 'data/intras_new'
+    folderName3 = 'data/intras_fixed'
+    fnre = re.compile(r'^(...)_(........)\.pkl$')
+    fileList = os.listdir(folderName)
+    symbols = {}
+
+    dates = StockAPI.getTradingDate(365*2)
+    dateIdx = {}
+    for i,v in enumerate(dates):
+        dateIdx[v] = i
+
+    srv = StockAPI.IntraServer('vdsc', folderName2)
+    errCnt = 0
+    fixCnt = 0
+    chkCnt = 20
+
+    print('Checking %d ... ' % len(fileList))
+
+    for fname in fileList:
+        chkCnt -= 1
+        if chkCnt == 0:
+            # print('. ', end='', flush=True)
+            chkCnt = 20
+
+        x = fnre.match(fname)
+        if not x:
+            continue
+        ticket, dateStr = x.groups()
+        date = int(datetime.strptime(dateStr + ' 07', '%Y%m%d %H').timestamp())
+        intra = pickle.load(open(folderName+'/'+fname, 'rb'))
+        intra2 = srv.intraday(ticket, date)
+        if ticket not in symbols:
+            symbols[ticket] = Symbol.SymbolHistory(ticket, StockAPI.getPriceHistory(ticket,365*2))
+
+        daily = symbols[ticket].atDate(date)
+        if daily is None:
+            # print("??? %s %s" % (ticket, dateStr))
+            os.remove(folderName+'/'+fname)
+            continue
+
+        def totalVol(df):
+            dfm = StockAPI.intraMatchedOnly(df)
+            return dfm['mv'].sum()
+
+        vol0 = daily.volumn
+        vol1 = -1 if intra is None else totalVol(intra)
+        volMt1 = -1 if intra is None else intra.iloc[-1]['mt']
+        vol2 = -1 if intra2 is None else totalVol(intra2)
+        volMt2 = -1 if intra2 is None else intra2.iloc[-1]['mt']
+
+        def volOk(v1, v0):
+            if 0.98 < (v1/v0) < 1.02:
+                return True
+            return False
+
+        if vol0 == 0:
+            if vol2 == 0:
+                pickle.dump(intra2, open(folderName3+'/'+fname, 'wb'))
+            elif vol1 == 0:
+                pickle.dump(intra, open(folderName3+'/'+fname, 'wb'))
+            else:
+                print("Error: [%s] %s: vol1 %d (%d) vol2 %d (%d) vol0 %d" %
+                    (ticket, dateStr, vol1, volMt1, vol2, volMt2, vol0))
+
+        elif volOk(vol2, vol0):
+            pickle.dump(intra2, open(folderName3+'/'+fname, 'wb'))
+        elif volOk(vol1, vol0):
+            pickle.dump(intra, open(folderName3+'/'+fname, 'wb'))
+        elif volOk(volMt2, vol0):
+            intra2['mv'] = intra2['mt'].diff()
+            pickle.dump(intra2, open(folderName3+'/'+fname, 'wb'))
+        elif volOk(volMt1, vol0):
+            intra['mv'] = intra['mt'].diff()
+            pickle.dump(intra, open(folderName3+'/'+fname, 'wb'))
+        elif vol1 != 0 and vol1 == volMt1 and (vol0/vol1) == 10:
+            # VCSC sometime got this wrong in 10 folds...
+            intra['mv'] = intra['mv'] * 10
+            intra['mt'] = intra['mt'] * 10
+            pickle.dump(intra, open(folderName3+'/'+fname, 'wb'))
+        else:
+            print("Error: [%s] %s: vol1 %d (%d) vol2 %d (%d) vol0 %d" %
+                (ticket, dateStr, vol1, volMt1, vol2, volMt2, vol0))
+            pickle.dump(None, open(folderName3+'/'+fname, 'wb'))
+        
+
+        # if vol0 == 0:
+        #     if vol2 == 0:
+        #         pickle.dump(intra2, open(folderName3+'/'+fname, 'wb'))
+        #     elif vol1 == 0:
+        #         pickle.dump(intra, open(folderName3+'/'+fname, 'wb'))
+        #     else:
+        #         print("Error: [%s] %s: vol1 %d vol2 %d vol0 %d" % (ticket, dateStr, vol1, vol2, vol0))
+
+        # elif vol1 == 0:
+        #     if vol2 > 0 and 0.98 < (vol2 / vol0) < 1.02:
+        #         pickle.dump(intra2, open(folderName3+'/'+fname, 'wb'))
+        #     else:
+        #         print("Error: [%s] %s: vol1 %d vol2 %d vol0 %d" % (ticket, dateStr, vol1, vol2, vol0))
+
+        # elif 0.98 < (vol2 / vol0) < 1.02:
+        #     pickle.dump(intra2, open(folderName3+'/'+fname, 'wb'))
+        # elif 0.98 < (vol1 / vol0) < 1.02:
+        #     pickle.dump(intra, open(folderName3+'/'+fname, 'wb'))
+        # elif 0.98 < (vol2 / vol1) < 1.02:
+        #     if intra is None and intra2 is None:
+        #         pickle.dump(intra, open(folderName3+'/'+fname, 'wb'))
+        #     else:
+        #         print("Info: [%s] %s: recheck this vol1 %d vol2 %d vol0 %d" % (ticket, dateStr, vol1, vol2, vol0))
+        # else:
+        #     print("Error: [%s] %s: vol1 %d vol2 %d vol0 %d" % (ticket, dateStr, vol1, vol2, vol0))
+
+        # if intra is None:
+        #     newIntra = srv.intraday(ticket, date)
+        #     continue
+        
+        
+
+        # def totalVol(df):
+        #     dfm = StockAPI.intraMatchedOnly(df)
+        #     return dfm['mv'].sum()
+
+        # intraVol = totalVol(intra)
+        # dailyVol = daily.volumn
+        # if 0.98 < (intraVol / dailyVol) < 1.02:
+        #     pass
+        # else:
+        #     errCnt += 1
+        #     # print('ERROR: [%s] %s : %s <> %s' % (ticket, dateStr, intraVol, dailyVol))
+        #     # print('Getting %s %s' % (ticket, date))
+        #     newIntra = srv.intraday(ticket, date)
+        
+        
+
+        # if date not in dateIdx:
+        #     # print('ERROR: consider remove this file %s' % fname)
+        #     os.remove(folderName+'/'+fname)
+        #     continue
+
+        # Check the volume
+        # if intra is None:
+        #     newIntra = srv.intraday(ticket, date, dontsave=True, refetch=True)
+        #     pickle.dump(newIntra, open('data/intras_new/'+fname, 'wb'))
+        #     continue
+
+
+
+        # def totalVol(df):
+        #     dfm = StockAPI.intraMatchedOnly(df)
+        #     return dfm['mv'].sum()
+
+        # intraVol = totalVol(intra)
+        # try:
+        #     dailyVol = symbols[ticket].volumn[dateIdx[date]]
+        # except Exception as e:
+        #     print("??? %s %s %s" % (ticket, dateStr, e))
+        # if 0.98 < (intraVol / dailyVol) < 1.02:
+        #     pass
+        # else:
+        #     errCnt += 1
+        #     # print('ERROR: [%s] %s : %s <> %s' % (ticket, dateStr, intraVol, dailyVol))
+        #     # print('Getting %s %s' % (ticket, date))
+        #     newIntra = srv.intraday(ticket, date, dontsave=True, refetch=True)
+        #     pickle.dump(newIntra, open('data/intras_new/'+fname, 'wb'))
+        #     # if newIntra is not None:
+        #     #     newVol = totalVol(newIntra)
+        #     #     if 0.98 < (newVol / dailyVol) < 1.02:
+        #     #         pickle.dump(newIntra, open('data/intras_new/'+fname, 'wb'))
+        #     #         fixCnt += 1
+        #     #         continue
+        #     # print('ERROR: [%s] %s : %s <> %s' % (ticket, dateStr, intraVol, dailyVol))
+
+    # print('\nTotal error %d' % errCnt)

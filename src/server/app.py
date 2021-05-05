@@ -63,31 +63,31 @@ def testpost():
     # response.headers.add('Access-Control-Allow-Origin', '*')
     return {'some': 'data'}
 
-@app.route('/intra', methods = ['POST'])
-def getIntra():
-    params = request.get_json()
-    try:
-        ticket = params['tic']
-    except:
-        return {'status':'bad', 'reason':'No tic field is found'}
-    # try:
-    intra = Statistics.intraMatchedVol(ticket)
-    return {'status':'ok', 'payload':intra.to_dict(orient='records')}
-    # except Exception as e:
-    #     return {'status':'bad', 'reason': 'Failed to get intra "%s"' % e}
+# @app.route('/intra', methods = ['POST'])
+# def getIntra():
+#     params = request.get_json()
+#     try:
+#         ticket = params['tic']
+#     except:
+#         return {'status':'bad', 'reason':'No tic field is found'}
+#     # try:
+#     intra = Statistics.intraMatchedVol(ticket)
+#     return {'status':'ok', 'payload':intra.to_dict(orient='records')}
+#     # except Exception as e:
+#     #     return {'status':'bad', 'reason': 'Failed to get intra "%s"' % e}
 
-@app.route('/today', methods = ['POST'])
-def getToday():
-    params = request.get_json()
-    try:
-        ticket = params['tic']
-    except:
-        return {'status':'bad', 'reason':'No tic field is found'}
-    # try:
-    intra = Statistics.intraMatchedVol2(ticket)
-    return {'status':'ok', 'payload':intra}
-    # except Exception as e:
-    #     return {'status':'bad', 'reason': 'Failed to get intra "%s"' % e}
+# @app.route('/today', methods = ['POST'])
+# def getToday():
+#     params = request.get_json()
+#     try:
+#         ticket = params['tic']
+#     except:
+#         return {'status':'bad', 'reason':'No tic field is found'}
+#     # try:
+#     intra = Statistics.intraMatchedVol2(ticket)
+#     return {'status':'ok', 'payload':intra}
+#     # except Exception as e:
+#     #     return {'status':'bad', 'reason': 'Failed to get intra "%s"' % e}
 
 @app.route('/daily', methods = ['POST'])
 def getDaily():

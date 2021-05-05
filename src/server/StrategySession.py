@@ -55,17 +55,19 @@ class BacktestSession:
         self.debugMode = debug
         if debug:
             self._symbols = pickle.load(open('data/current_prices.pkl', 'rb'))
+            print('symbols', len(self._symbols))
             # self._signals = pickle.load(open('data/current_signals.pkl', 'rb'))
             # self._intra = pickle.load(open('data/current_intra.pkl', 'rb'))
         if not refetchAll:
             self._tickets = pickle.load(open('data/selTickets.pkl', 'rb'))
+            print('tickets', len(self._tickets))
 
     def backup_price(self, filename):
         pickle.dump(self._symbols, open(filename, 'wb'))
 
     def start(self, filerFunc='_default_'):
         if self._symbols is None:
-            tickets = StockAPI.getAllTickets() if self._tickets is None else self._tickets
+            tickets = StockAPI.getAllTickets('hose hnx upcom') if self._tickets is None else self._tickets
             symbols = getAllSymbolHistory(tickets=tickets)
         else:
             symbols = self._symbols
@@ -77,13 +79,14 @@ class BacktestSession:
                 def _defaultFilter(x):
                     return (
                         x.len>=100 and 
-                        x.sma(src='volumn',window=50).iloc[-1]>=100000 and 
+                        x.sma(src='volumn',window=50).iloc[-1]>=500000 and 
                         2.0 < x.close.iloc[-1] < 60.0 and
                         len(x.name) == 3 # To remove Derative ticket...
                     )
                 filerFunc = _defaultFilter
             self._symbols = {x.name:x for x in filter(filerFunc, symbols.values())}
         self._tickets = sorted(self._symbols.keys())
+        pickle.dump(self._symbols, open('data/current_prices.pkl', 'wb'))
         pickle.dump(self._tickets, open('data/selTickets.pkl', 'wb'))
         # # get Intra
         # if self._intra is None:
@@ -91,8 +94,7 @@ class BacktestSession:
         #     if not self.debugMode:
         #         self._db.add_intraday(self._intra)
         if not self.debugMode:
-            StockAPI.fetchIntradayAllTickets(self._tickets)
-        pickle.dump(self._symbols, open('data/current_prices.pkl', 'wb'))
+            StockAPI.fetchIntradayAllSymbols(self._symbols)
         # pickle.dump(self._intra, open('data/current_intra.pkl', 'wb'))
         print('len', len(self._tickets), len(self._symbols))
     
@@ -179,6 +181,14 @@ class BacktestSession:
                     res[tic] = [{'dec':dec, 'reason':reason}]
                 # res.append({'tic':tic, 'dec':dec, 'reason':reason})
 
+            # # RSI
+            # rsi = sym.rsi()
+            # if rsi.iloc[-2] < 30 and rsi.iloc[-1] > rsi.iloc[-2]:
+            #     try:
+            #         res[tic].append({'dec':Decision.BUY, 'reason':'RSI<30 but in recover'})
+            #     except:
+            #         res[tic] = [{'dec':Decision.BUY, 'reason':'RSI<30 but in recover'}]
+
         # for k,v in self._process_intra():
         #     if len(v) == 0:
         #         continue
@@ -200,12 +210,13 @@ class BacktestSession:
             for x in r[0]:
                 if x != '':
                     cnt += 1
-            # if cnt > 0:
-            if r[0][-3] != '' or r[0][-2] != '' or r[0][-1] != '':
+            if cnt > 0:
+            # if r[0][-3] != '' or r[0][-2] != '' or r[0][-1] != '':
                 try:
                     res[tic].append({'dec': Decision.BUY, 'reason':r[0]})
                 except:
                     res[tic] = [{'dec': Decision.BUY, 'reason':r[0]}]
+
 
         self._signals = res
         pickle.dump(res, open('data/current_signals.pkl', 'wb'))
