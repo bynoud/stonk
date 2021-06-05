@@ -1,8 +1,9 @@
 
+from os import error
 import requests, json, datetime, logging, pickle
 import pandas as pd
 import numpy as np
-# from  Symbol import SymbolHistory, simple_moving_average
+from  Symbol import SymbolHistory
 import StockDB
 
 _OPT = {
@@ -70,7 +71,7 @@ class IntraServer:
             # StockDB.saveIntra(tic, intra, date, dbCursor)
         return intra
 
-def getAllTickets(exchange: str = 'hose hnx'):
+def getAllTickets(exchange: str = 'hose hnx upcom'):
     exchange = exchange.lower().split()
     # logging.info("Getting All Symbols from Exchanger '%s'" % exchanger)
     query = ''
@@ -89,6 +90,34 @@ def getAllTickets(exchange: str = 'hose hnx'):
     return result
     # return [x['stockSymbol'] for x in 
     #             filter(lambda s: s['__typename'] == 'StockRealtime' and s['exchange'] in exchange, j['data'][exchanger])]
+
+def getGroupTickets(group: str, full=False):
+    query = "query stockRealtimesByGroup($group: String) {stockRealtimesByGroup(group: $group) {stockNo ceiling floor refPrice matchedPrice stockSymbol stockType exchange matchedPrice}}"
+    r = requests.post("https://gateway-iboard.ssi.com.vn/graphql",
+        data={"operationName":"stockRealtimesByGroup",
+        "variables": '{"group":"%s"}'%group, "query": query})
+    if r.status_code != 200:
+        # logging.error("Failed to get Symbols '%s'" % r.reason)
+        print("Error: Failed to get Group %s : '%s'" % (group, r.reason))
+        return []
+    j = json.loads(r.text)
+    tickets = [x['stockSymbol'] for x in j['data']['stockRealtimesByGroup']]
+    if not full:
+        return tickets
+    else:
+        return {'tickets': tickets, 'info':{x['stockSymbol']:x for x in j['data']['stockRealtimesByGroup']}}
+
+def getIndustries(tickets=None):
+    r = requests.get('https://api-finfo.vndirect.com.vn/industries')
+    if r.status_code != 200:
+        raise Error('Failed to get: %s' % r.reason)
+    j = json.loads(r.text)
+    res = {}
+    def selTic(tic):
+        return len(tic)==3 and (tickets is None or tic in tickets)
+    for item in j['data']:
+        res[item['industryNameEn']] = list(filter(selTic, item['codeList'].split(',')))
+    return res
 
 # def getAllTickets(exchange: str = "HOSE HNX"):
 #     logging.info("Getting All Symbols from Exchange '%s'" % exchange)
@@ -200,7 +229,7 @@ def getTradingDate(dayNum: int, tillDate = -1):
 #         return
 #     return json.loads(postRes.content.decode('utf-8'))
 
-def __getIntradayBooks(tickets, result) -> (bool, str):
+def __getIntradayBooks(tickets, result):
     referer = 'https://finance.vietstock.vn/VNM/thong-ke-giao-dich.htm'
     client = requests.session()
     client.headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.82 Safari/537.36'}
@@ -273,9 +302,14 @@ def _intraProcess(df, ceil, floor):
         df['time'] = pd.to_datetime(df['time'], format='%H:%M:%S')
     except ValueError:
         df['time'] = pd.to_datetime(df['time'], format='%H:%M:%S.%f')
-
     df = df[df['time'].dt.hour >= 9]
+
+    if len(df) == 0:
+        df['buy'] = pd.Series([])
+        return df
+
     df = df.loc[(df['mt']==0).idxmin():].reset_index() # drop pre-ATO phase
+    
     # sel = df[df['mt'] != df['mt'].shift(1)].reset_index()  # only check where total matched is changed
     df1 = df.shift(1)
     for i in range(1,4):
@@ -356,10 +390,11 @@ def _getCookie(srv=None):
         raise Error('Failed to get')
     return r.headers['Set-Cookie']
 
-def intradaySearch_vcsc(tic, date, cookie=''):
+def intradaySearch_vcsc(tic, date=None, cookie='', dateStr=''):
     if cookie == '':
         cookie = _getCookie('vcsc')
-    dateStr = date.strftime("%Y%m%d")
+    if dateStr == '':
+        dateStr = date.strftime("%Y%m%d")
     # print('Se', tic, date, cookie)
     r = requests.post('http://priceboard1.vcsc.com.vn/vcsc/IntradayDataAjaxService?time=%d' % datetime.datetime.now().timestamp(), 
         data={'data': '{"command":"init","msgid":1,"data":["%s","%s"]}' % (tic, dateStr)},
@@ -370,13 +405,12 @@ def intradaySearch_vcsc(tic, date, cookie=''):
             'User-Agent': _OPT['agent']}
     )
     if r.status_code != 200:
-        raise Error('Failed to get Intra for "%s": %s' % (tic, r.reason))
-    txt = r.content.decode('utf-8')
-    if txt == '':
+        raise Error('Failed to get Intra for "%s" %s: %s' % (tic, dateStr, r.reason))
+    if r.text == '':
         return None
 
     try:
-        j = json.loads(txt)
+        j = json.loads(r.text)
     except json.decoder.JSONDecodeError:
         raise Error('Failed to decode Intra for "%s": %s' % (tic, txt))
 
@@ -388,7 +422,7 @@ def intradaySearch_vcsc(tic, date, cookie=''):
     def v2i(s):
         return int(s.replace(',','')) * 10
     def p2f(s):
-        return 0.0 if (s in ['ATC', 'ATO']) else float(s)
+        return 0.0 if (s in ['ATC', 'ATO']) else float(s.replace(',',''))
     ceil, floor = p2f(j['content'][0]['cei']), p2f(j['content'][0]['flo'])
     for i,v in enumerate(j['content']):
         intra.at[i] = {
@@ -449,7 +483,7 @@ def intradaySearch(sym, svrs, idx=-1):
         pass
 
     delta = datetime.datetime.now() - date
-    dayPassed = delta.days > 0 or delta.seconds > 28800
+    dayPassed = delta.days > 0 or delta.seconds > 32400
 
     dailyVol = sym.volumn.iloc[idx]
     
@@ -460,6 +494,8 @@ def intradaySearch(sym, svrs, idx=-1):
     def intraOk(intra):
         if intra is None:
             return False
+        if len(intra) == 0:
+            return (dailyVol == 0)
         vol = intraMatchedOnly(intra)['mv'].sum()
         if volOk(vol, dailyVol):
             return True
@@ -470,10 +506,14 @@ def intradaySearch(sym, svrs, idx=-1):
                 return True
         return False
 
-    intra1 = svrs['vdsc'].intraday(tic, date, dontsave=True, refetch=True)
-    if dayPassed and not intraOk(intra1):
+    def get_vdsc(tic,date):
+        intra1 = svrs['vdsc'].intraday(tic, date, dontsave=True, refetch=True)
+        return (intra1, dayPassed and not intraOk(intra1))
+    
+    def get_vcsc(tic,date):
         intra1 = svrs['vcsc'].intraday(tic, date, dontsave=True, refetch=True)
-        if not intraOk(intra1):
+        failed = False
+        if dayPassed and intra1 is not None and not intraOk(intra1):
             vol = intraMatchedOnly(intra1)['mv'].sum()
             volMt = intra1['mt'].iloc[-1]
             if vol == volMt and (dailyVol/vol) == 10:
@@ -481,8 +521,28 @@ def intradaySearch(sym, svrs, idx=-1):
                 intra1['mv'] = intra1['mv'] * 10
                 intra1['mt'] = intra1['mt'] * 10
             else:
-                print("Invalid intra. discard it")
-                intra1 = None
+                failed = True
+        return (intra1, failed)
+
+    # intra1 = svrs['vdsc'].intraday(tic, date, dontsave=True, refetch=True)
+    # if dayPassed and not intraOk(intra1):
+    #     intra1 = svrs['vcsc'].intraday(tic, date, dontsave=True, refetch=True)
+    #     if intra1 is not None and not intraOk(intra1):
+    #         vol = intraMatchedOnly(intra1)['mv'].sum()
+    #         volMt = intra1['mt'].iloc[-1]
+    #         if vol == volMt and (dailyVol/vol) == 10:
+    #             # VCSC sometime got this wrong in 10 folds...
+    #             intra1['mv'] = intra1['mv'] * 10
+    #             intra1['mt'] = intra1['mt'] * 10
+    #         else:
+    #             print("Invalid intra. discard it %s(%s)" % (tic, dateStr))
+    #             intra1 = None
+    intra1, failed = get_vcsc(tic, date)
+    if failed:
+        intra1, failed = get_vdsc(tic, date)
+        if failed:
+            print("Invalid intra. discard it %s(%s)" % (tic, dateStr))
+            intra1 = None
     
     # only save the Intra if this is fetched after 3PM
     # print(now, now.hour)
@@ -558,20 +618,32 @@ def intradaySearch_worked_full(tic, date, cookie='', dbCursor=None):
         # StockDB.saveIntra(tic, intra, date, dbCursor)
     return intra
 
-def fetchIntradayAllSymbols(symbols):
-    print('Getting Intra for %d symbols ...' % (len(symbols)), end='', flush=True)
+def fetchIntradayAllSymbols(symbols=None, tickets=None, pastDays=5):
+    if symbols is None:
+        if tickets is None:
+            raise Exception('Either symbols or tickets needed')
+        symbols = {}
+        for tic in tickets:
+            symbols[tic] = SymbolHistory(tic, dayNum=pastDays+20)
+    print('Getting Intra for %d symbols ... ' % (len(symbols)), end='', flush=True)
     # print('date', date)
-    res = {}
     svrs = {
         'vcsc': IntraServer('vcsc'),
         'vdsc': IntraServer('vdsc'),
     }
+    # print("XX")
 
     # cursor = StockDB.getCursor()
     cnt = 10
-    for sym in symbols:
+    for tic, sym in symbols.items():
         # res[tic] = intradaySearch(tic, date, cookie, cursor)
-        res[sym.name] = intradaySearch(sym, svrs)
+        maxDay = min(pastDays, sym.len)
+        try:
+            for i in range(1,maxDay+1):
+                intradaySearch(sym, svrs, -i)
+        except Exception as e:
+            print("Error during get Intraday for %s" % (tic))
+            raise e
         cnt -= 1
         if cnt <= 0:
             print('.', end='', flush=True)
@@ -631,3 +703,47 @@ def getIntradayHistory(symbol, lookback=20, matchedOnly=False):
 #             cnt = 5
 #     print(" Done")
 #     return price
+
+
+from bs4 import BeautifulSoup
+
+def getFloatedShares(tickets, session=None):
+    # ticket = ticket.upper()
+    # x = requests.get('https://en.vietstock.vn/vsSearchBox.ashx?q=%s&limit=5' % ticket)
+    # url = ''
+    # for res in x.text.split('\n'):
+    #     info = res.split('|')
+    #     if info[0] == ticket:
+    #         url = info[2]
+    #         break
+    # if url == '':
+    #     raise Error('Failed to search for %s' % ticket)
+
+    if session is None:
+        session = requests.Session()
+        session.headers.update({'User-Agent':_OPT['agent']})
+        # This is just to get cookie & set language to English
+        url = 'https://finance.vietstock.vn/BID-jsc-bank-for-investment-and-development-of-vietnam.htm?languageid=2'
+        session.get(url)
+        session.headers.update({'Host':'finance.vietstock.vn', 
+                'Origin':'https://finance.vietstock.vn', 
+                'Referer':url,
+                'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8'})
+
+    res = {}
+    cnt = 20
+    print("Getting Floated Shares for %d tickets..." % len(tickets), end='', flush=True)
+    for ticket in tickets:
+        p = session.post('https://finance.vietstock.vn/view', data='name=profile&code=%s'%ticket)
+        bs = BeautifulSoup(p.text)
+        for p in bs.body.find_all('p'):
+            t = [y.strip() for y in p.find_all(text=True)]
+            if t[0] == 'Shares outstanding':
+                res[ticket] = int(t[1].replace(',',''))
+                break
+        cnt -= 1
+        if cnt <= 0:
+            cnt = 20
+            print('.', end='', flush=True)
+    print('Done')
+    return res

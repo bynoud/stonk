@@ -22,7 +22,9 @@ def volumn_weighted_moving_average(price: pd.Series, volumn: pd.Series, window: 
 
 class SymbolHistory:
 
-    def __init__(self, name:str, price):
+    def __init__(self, name:str, price=None, dayNum=200):
+        if price is None:
+            price = StockAPI.getPriceHistory(name, dayNum)
         self._name = name
         self._df = pd.DataFrame(price)
         self._dateIdx = {v:i for i,v in enumerate(price['time'])}
@@ -44,6 +46,9 @@ class SymbolHistory:
     def volumn(self): return self._df['volumn']
     @property
     def time(self): return self._df['time']
+
+    @property
+    def ohcl(self): return self._df[['open','high','close','low']]
 
     def atDate(self, date):
         try:

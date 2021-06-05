@@ -4,6 +4,7 @@ from flask_cors import CORS
 from apscheduler.schedulers.background import BackgroundScheduler
 import time, datetime, atexit, pickle
 import pandas as pd
+import numpy as np
 
 from StrategySession import BacktestSession, Decision
 from Symbol import SymbolHistory
@@ -115,12 +116,30 @@ def getTodayTest():
     except:
         return {'status':'bad', 'reason':'No tic field is found'}
     try:
-        sym = pickle.load(open('data/tmp_price_%s.pkl' % ticket, 'rb'))
+        price = pickle.load(open('data/tmp_price_%s.pkl' % ticket, 'rb'))
     except:
         # sym = SymbolHistory(ticket, StockAPI.getPriceHistory(ticket, 365*2+50))
-        sym = StockAPI.getPriceHistory(ticket, 365)
-        pickle.dump(sym, open('data/tmp_price_%s.pkl' % ticket, 'wb'))
-    df = pd.DataFrame(sym)
+        price = StockAPI.getPriceHistory(ticket, 200)
+        pickle.dump(price, open('data/tmp_price_%s.pkl' % ticket, 'wb'))
+    sym = SymbolHistory(ticket, price=price)
+    df = pd.DataFrame(sym.ohcl)
+    df['volumn'] = sym.volumn
+    df['time'] = sym.time
+
+    avg = df.close.rolling(window=10).mean()
+    pf = Statistics.polyfit(df.close, 1, errAccept=0.008, avg=avg)
+    pf2 = Statistics.polyfit(df.close, 2, errAccept=0.01, avg=avg)
+    df['fitval'] = pf.fitval
+    df['fitCurve'] = pf2.fitval
+
+    daily = Statistics.dailyStat(sym)
+    df['volRsi'] = daily.volRsi
+    df['buyVol'] = daily.buyVol
+    df['sellVol'] = daily.sellVol
+    df['unkVol'] = df.volumn - daily.sellVol - daily.buyVol
+    df['unkVol'][df.unkVol.isnull()] = df.volumn
+
+    df = df.replace({np.nan:None})
     return {'status':'ok', 'payload': df.to_dict(orient='records')}
 
 if __name__ == '__main__':

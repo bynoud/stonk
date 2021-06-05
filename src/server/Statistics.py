@@ -1,6 +1,7 @@
 
 import pandas as pd
 import numpy as np
+import scipy
 
 import StockAPI
 from datetime import datetime
@@ -144,50 +145,150 @@ def volRsi(buyVol, sellVol):
     dUp, dDown = delta.copy(), delta.copy()
     dUp[dUp < 0] = 0
     dDown[dDown > 0] = 0
-    rolUp = dUp.rolling(window=14, min_periods=1).mean()
-    rolDown = dDown.rolling(window=14, min_periods=1).mean().abs()
+    rolUp = dUp.rolling(window=14).mean()
+    rolDown = dDown.rolling(window=14).mean().abs()
     rs = rolUp / rolDown
     # print(rs.tail(10))
     return ( 100.0 - 100.0 / (1.0 + rs))
 
-def dailyStat(symbol, lookback=100, intras=None):
+def dailyStat(symbol, lookback=-1, intras=None):
+    if lookback == -1:
+        lookback = symbol.len - 14
     period = lookback + 14
-    dates = symbol.time.iloc[-period:].reset_index(drop=True)
+    dates = symbol.time.iloc[-period:]
     if intras is None:
         intras = StockAPI.getIntradayHistory(symbol, period, matchedOnly=True)
 
-    close = symbol.close.iloc[-period:].reset_index(drop=True)
-    df = pd.DataFrame({
-        'close': close,
-        'vol': symbol.volumn.iloc[-period:].reset_index(drop=True),
-        'dates': pd.to_datetime(dates, unit='s'),
-        # 'chg': close.diff() / close.shift(1),
-        'volAvg': symbol.volumn.rolling(window=50, min_periods=50).mean().shift(1).iloc[-period:].reset_index(drop=True),
-        'buyVol': pd.Series(0.0, index=range(period)),
-        'sellVol': pd.Series(0.0, index=range(period)),
-        'buyPrice': pd.Series(0.0, index=range(period)),
-        'sellPrice': pd.Series(0.0, index=range(period)),
-    })
+    close = symbol.close.iloc[-period:]
+    # df = pd.DataFrame({
+    #     'close': close,
+    #     'vol': symbol.volumn.iloc[-period:],
+    #     'dates': pd.to_datetime(dates, unit='s'),
+    #     # 'chg': close.diff() / close.shift(1),
+    #     'volAvg': symbol.volumn.rolling(window=50, min_periods=50).mean().shift(1).iloc[-period:],
+    #     'buyVol': pd.Series(0.0, index=range(period)),
+    #     'sellVol': pd.Series(0.0, index=range(period)),
+    #     'buyPrice': pd.Series(0.0, index=range(period)),
+    #     'sellPrice': pd.Series(0.0, index=range(period)),
+    # }, index=close.index)
+    buyVol = [None]*period
+    buyPrice = [None]*period
+    sellVol = [None]*period
+    sellPrice = [None]*period
 
-    for i in range(period-1, -1, -1):
-        date = dates[i]
+    for i in range(period):
+        date = dates.iloc[i]
         intr = intras[i]
 
         if intr is not None:
             buy = intr[intr['buy']==1]
             sell = intr[intr['buy']!=1]
-            buyVol, sellVol = buy['mv'].sum(), sell['mv'].sum()
-            buyPrice = 0 if buyVol == 0 else (buy['mv'] * buy['mp']).sum() / buy['mv'].sum()
-            sellPrice = 0 if sellVol == 0 else (sell['mv'] * sell['mp']).sum() / sell['mv'].sum()
-            df.at[i, 'buyVol'] = buyVol
-            df.at[i, 'buyPrice'] = buyPrice
-            df.at[i, 'sellVol'] = sellVol
-            df.at[i, 'sellPrice'] = sellPrice
+            bv, sv = buy['mv'].sum(), sell['mv'].sum()
+            bp = 0 if bv == 0 else (buy['mv'] * buy['mp']).sum() / bv
+            sp = 0 if sv == 0 else (sell['mv'] * sell['mp']).sum() / sv
+            # df.at[i, 'buyVol'] = buyVol
+            # df.at[i, 'buyPrice'] = buyPrice
+            # df.at[i, 'sellVol'] = sellVol
+            # df.at[i, 'sellPrice'] = sellPrice
+            buyVol[i] = bv
+            buyPrice[i] = bp
+            sellVol[i] = sv
+            sellPrice[i] = sp
             
+    df = pd.DataFrame({
+        'close': close,
+        'vol': symbol.volumn.iloc[-period:],
+        'dates': pd.to_datetime(dates, unit='s'),
+        # 'chg': close.diff() / close.shift(1),
+        'volAvg': symbol.volumn.rolling(window=50).mean().shift(1).iloc[-period:],
+        'buyVol': buyVol,
+        'sellVol': sellVol,
+        'buyPrice': buyPrice,
+        'sellPrice': sellPrice,
+    }, index=close.index)
+
     df['buySellVolRatio'] = df['buyVol'] / df['sellVol']
     df['buySellPriceDiff'] = df['buyPrice'] - df['sellPrice']
-    df['rsi'] = symbol.rsi().iloc[-period:].reset_index(drop=True)
+    df['rsi'] = symbol.rsi().iloc[-period:]
     df['rsiChg'] = df['rsi'].diff() # * 100.0 / df['rsi'].shift(1)
     df['volRsi'] = volRsi(df['buyVol'], df['sellVol'])
     df['volRsiChg'] = df['volRsi'].diff() # * 100.0 / df['volRsi'].shift(1)
-    return df.iloc[-lookback:].reset_index(drop=True)
+    return df.iloc[-lookback:]
+
+# # slope > 0 increase, 
+# #       < 0 decrease,
+# # if |slope| < 0.25 & stderr <= 0.1 & change <= 5% --> price is moving in small boundary
+# def getMovingDirection(ps, interval=10):
+#     sz = len(ps)
+#     slope = [None]*interval
+#     stderr = [None]*interval
+#     change = [None]*interval
+#     for i in range(interval, sz):
+#         x = ps.iloc[i-interval:i]
+#         slp, inter, rv, pv, err = scipy.stats.linregress(x=range(interval), y=x)
+#         slope.append(slp)
+#         stderr.append(err)
+#         change.append((x.max()-x.min()) * 2 / (x.max()+x.min()) )
+#     df = pd.DataFrame({'slope':slope, 'stderr':stderr, 'change':change})
+#     df['stable'] = (df.slope.abs() < 0.25) & (df.stderr <= 0.1) & (df.change <= 0.05)
+#     return df
+
+def polyfit(ps, deg, intv=10, avg=None, errAccept=0.01):
+    sz = len(ps)
+    coeff = []
+    resid = [None]*(intv-1)
+    fitval = [None]*sz
+    for i in range(deg+1):
+        coeff.append([None]*(intv-1))
+    
+    if avg is None:
+        avg = ps
+
+    for idx in range(intv-1, sz):
+        bidx = idx-intv+1
+        y = ps.iloc[bidx:bidx+intv]
+        pf, res, _, _, _ = np.polyfit(x=range(intv), y=y, deg=deg, full=True)
+        pfm = [x.mean() for x in pf]
+
+        for j in range(deg+1):
+            coeff[j].append(pfm[j])
+        
+        # if len(res) > 1:
+        #     res = np.sqrt(np.square(res).mean())
+        # else:
+        #     res = res[0]
+        err = np.sqrt(res.mean() / intv)
+        resid.append(err)
+        if (err/avg.iloc[idx]) <= errAccept:
+            vals = np.polyval(pfm, range(intv))
+            for j,v in enumerate(vals):
+                fitval[bidx+j] = v
+    # return res
+    x = pd.DataFrame({'p%d'%i:v for i,v in enumerate(coeff)}, index=ps.index)
+    x['residuals'] = resid
+    x['fitval'] = fitval
+    return x
+
+def stderr(ps, intv=20):
+    std = [None]*intv
+    for i in range(intv, len(ps)):
+        y = ps.iloc[i-intv:i]
+        std.append(y.std() / y.mean())
+    return pd.Series(std)
+
+def getMovingDirection(ps, interval=10):
+    ps = ps.reset_index(drop=True)
+    pf2 = polyfit(ps, 2, interval)
+    pf1 = polyfit(ps, 1, interval)
+    avg = ps.rolling(window=interval).mean()
+
+    res1 = pf1.residuals / avg
+    res2 = pf2.residuals / avg
+    fitted = (res1 <= 0.025) & (res2 <= 0.025)
+
+    slope = pf1.p0 / avg
+    direction = np.where(slope.abs() < 0.02, 0, 1)
+    direction[slope <= -0.02] = -1
+
+    # return (fitted & decrease)
+    return pd.DataFrame({'fitted':fitted, 'direction':direction})

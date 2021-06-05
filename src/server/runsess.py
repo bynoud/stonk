@@ -21,10 +21,10 @@ def signPrint(signals):
     return res
 
 # ss = StrategySession.BacktestSession()
-ss = StrategySession.BacktestSession(debug=True)
-# ss = StrategySession.BacktestSession(refetchAll=True)
-# ss._symbols = pickle.load(open('data/tmp_prices_27042021.pkl','rb'))
+# ss = StrategySession.BacktestSession(debug=True)
+ss = StrategySession.BacktestSession(refetchAll=True)
+# ss._symbols = pickle.load(open('data/current_prices.pkl','rb'))
 ss.start()
 # ss._signals = None
-signals = ss.signals
-print(signPrint(signals))
+# signals = ss.signals
+# print(signPrint(signals))

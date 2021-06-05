@@ -749,3 +749,157 @@ def intradayRecheck():
         #     # print('ERROR: [%s] %s : %s <> %s' % (ticket, dateStr, intraVol, dailyVol))
 
     # print('\nTotal error %d' % errCnt)
+
+
+def polyfit(ps, deg, intv=10):
+    import numpy as np
+    import pandas as pd
+    coeff = []
+    resid = [None]*intv
+    line = []
+    for i in range(deg+1):
+        coeff.append([None]*intv)
+
+    for i in range(intv, len(ps)):
+        y = ps.iloc[i-intv:i]
+        pf, res, _, _, _ = np.polyfit(x=range(intv), y=y, deg=deg, full=True)
+        for j in range(deg+1):
+            coeff[j].append(pf[j])
+        resid.append(res[0])
+    # return res
+    x = pd.DataFrame({'p%d'%i:v for i,v in enumerate(coeff)})
+    x['residuals'] = resid
+    return x
+
+# def drawCandleLine(df,line):
+#     >>> from plotly.subplots import make_subplots
+# >>> fig = make_subplots(rows=2, cols=1)
+# >>> fig.add_trace(   
+
+# >>> r = requests.get('https://s.cafef.vn/Ajax/CongTy/BanLanhDao.aspx?sym=VRE')
+# >>> from bs4 import BeautifulSoup
+# >>> soup = BeautifulSoup(r.text, 'html.parser')
+
+# cd = soup.find('div', {'id':'divViewCoDongLon'})
+
+# >>> klcp = cd.find('table', {'id':'ucBanLanhDao2_tblKLCP'})
+# >>> td = klcp.find_all('td')
+# >>> len(td)
+# 1
+# >>> td[0]
+# <td align="right" colspan="2" style="border: 1px solid #e2e2e2; padding: 5px 20px 5px 20px; font-weight: bold; color: #343434">
+#                                 KL CP đang niêm yết : 2,328,818,410 cp<br/>
+#               KL CP đang lưu hành : 2,272,318,410 cp
+#                             </td>
+# >>> td[0].text
+# '\r\n                                KL CP đang niêm yết :\xa02,328,818,410\xa0cp\r\n              KL CP đang lưu hành :\xa02,272,318,410\xa0cp\r\n                            '
+# >>> t = td[0].text
+# >>> t.strim()
+# Traceback (most recent call last):
+#   File "<stdin>", line 1, in <module>
+# AttributeError: 'str' object has no attribute 'strim'
+# >>> t.strip()
+# 'KL CP đang niêm yết :\xa02,328,818,410\xa0cp\r\n              KL CP đang lưu hành :\xa02,272,318,410\xa0cp'
+# >>> t
+# '\r\n                                KL CP đang niêm yết :\xa02,328,818,410\xa0cp\r\n              KL CP đang lưu hành :\xa02,272,318,410\xa0cp\r\n                            '
+# >>> t = t.strip()
+# >>> t
+# 'KL CP đang niêm yết :\xa02,328,818,410\xa0cp\r\n              KL CP đang lưu hành :\xa02,272,318,410\xa0cp'
+# >>> t.split('\r\n')
+# ['KL CP đang niêm yết :\xa02,328,818,410\xa0cp', '              KL CP đang lưu hành :\xa02,272,318,410\xa0cp']
+# >>> t = t.split('\r\n')
+# >>> t[0]
+# 'KL CP đang niêm yết :\xa02,328,818,410\xa0cp'
+# >>> t[0].split('\xa0')
+# ['KL CP đang niêm yết :', '2,328,818,410', 'cp']
+
+import pandas as pd
+
+def _combineSymbol(symbols, tickets=None):
+    df = {}
+    if tickets is None:
+        # tickets = [x.name for x in symbols]
+        tickets = list(symbols.keys())
+    for tic in tickets:
+        df[tic] = symbols[tic].close
+
+    df = pd.DataFrame(df)
+    sz = len(df)
+    for tic in tickets:
+        df[tic] = df[tic].shift(sz - symbols[tic].len)
+    return df
+
+def equalWeightedIndex(symbols, tickets=None, corrected=False, refval=1000.0):
+    if corrected:
+        if tickets is None:
+            df = symbols
+        else:
+            df = symbols[tickets]
+    else:
+        df = _combineSymbol(symbols, tickets)
+
+    isact = ~df.isnull()
+    dfsum = df.sum(axis=1)
+    adjratio = (df * isact.shift()).sum(axis=1) / dfsum
+
+    ratio = [refval / dfsum.iloc[0]]
+    for i in range(1,len(df)):
+        ratio.append(ratio[-1] * adjratio.iloc[i])
+        
+    res = pd.DataFrame({'ratio':ratio, 'adjust':adjratio})
+    res['idx'] = dfsum * res.ratio
+    # return (res,df)
+    return res['idx']
+
+def mktcapWeightedIndex(symbols, tickets, floatShares, refval=1000.0):
+    df = _combineSymbol(symbols, tickets)
+    for tic in tickets:
+        df[tic] = df[tic] * floatShares[tic]
+
+    return equalWeightedIndex(df, corrected=True, refval=refval)
+
+def getAllSymbol(dayNum:int=365*2+50, exchange: str = 'HOSE HNX'):
+    import StockAPI, Symbol
+    tickets = StockAPI.getAllTickets(exchange)
+    print("Getting price history of %d Stocks ..." % len(tickets), end="", flush=True)
+    syms = {}
+    cnt = 10
+    for tic in tickets:
+        if len(tic) != 3:
+            continue
+        symbol = Symbol.SymbolHistory(tic, dayNum=dayNum)
+        if symbol.len < 100 or symbol.sma(src='volumn',window=50).iloc[-1]<200000:
+            continue
+        syms[tic] = symbol
+        cnt -= 1
+        if cnt == 0:
+            print(".", end="", flush=True)
+            cnt = 10
+    print(" Done")
+    return syms
+
+def marketIndexes(symbols, industries, rolling=20):
+    close = _combineSymbol(symbols)
+    indexes = {}
+    sectors = {}
+    sectorAbs = {}
+    relativeIndexes = {}
+    indexes['Whole Market'] = equalWeightedIndex(close, corrected=True)
+
+    def incrPerc(ps):
+        return ps.diff(rolling) / ps.shift(rolling)
+    mktIncr = incrPerc(indexes['Whole Market'])
+
+    for industry,tickets in industries.items():
+        indexes[industry] = equalWeightedIndex(close, tickets=tickets, corrected=True)
+        sectorIncr = incrPerc(indexes[industry])
+        relativeIndexes[industry] = sectorIncr - mktIncr
+        sectorAbs[industry] = {'Index': indexes[industry]}
+        sector = {}
+        for tic in tickets:
+            firstVldId = close[tic].first_valid_index()
+            sectorAbs[industry][tic] = close[tic] * (indexes[industry].iloc[firstVldId] / close[tic].iloc[firstVldId])
+            sector[tic] = incrPerc(close[tic]) - sectorIncr
+        sectors[industry] = pd.DataFrame(sector)
+    return {'indexes': pd.DataFrame(indexes), 'relindexes': relativeIndexes, 'sectors': sectors, 'sectorAbs': sectorAbs}
+

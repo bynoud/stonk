@@ -66,6 +66,55 @@ def checkMoneyFlowOld(symbol: SymbolHistory, lookback=20, intras=None, halfsess=
     
     return signal, df
 
+def getMovingDirection(symbol, lookback, interval):
+    ps = symbol._df[['close', 'open', 'high', 'low']].iloc[-lookback-interval:]
+    avg = ps.close.rolling(window=interval).mean()
+    pf2 = Statistics.polyfit(ps, 2, interval, avg=avg, errAccept=0.008)
+    pf1 = Statistics.polyfit(ps, 1, interval, avg=avg, errAccept=0.01)
+
+    slope = pf1.p0 / avg
+
+    direction = np.where(slope.abs() < 0.02, 0, 1)
+    direction[slope <= -0.02] = -1
+
+    # return (fitted & decrease)
+    return pd.DataFrame({'fitted': pf1.fitval.notnull() | pf2.fitval.notnull(),
+        'direction':direction, 'line': pf1.fitval, 'curve': pf2.fitval,
+        'slope':slope,
+        'rres1': pf1.residuals,
+        'rres2': pf2.residuals,
+        }, index=ps.index).iloc[-lookback:]
+
+
+def onStable(symbol, lookback=50):
+    movingDir = getMovingDirection(symbol, lookback, 10)
+    # stable = movingDir['fitted'] & (movingDir['direction'] <= 0)
+    # dailyStat = Statistics.dailyStat(symbol, lookback=lookback)
+    date = pd.to_datetime(symbol.time.iloc[-lookback:].reset_index(drop=True), unit='s')
+    signals = []
+    for i in range(lookback):
+        s = ''
+        # if stable.iloc[i] and dailyStat['volRsi'].iloc[i] > 60:
+        #     s += 'OnStableMoveGoodVolRSI '
+        if movingDir.iloc[i]['fitted']:
+            s += 'TightFit '
+        # if movingDir.iloc[i]['looseFit']:
+        #     s += 'LosseFit '
+        if s != '':
+            s = '%s : %s' % (date[i].strftime('%Y/%m/%d'), s)
+        signals.append(s)
+    return signals, movingDir
+
+def onStableAll(symbols, lookback=20):
+    res = {}
+    for tic,sym in symbols.items():
+        try:
+            res[tic] = onStable(sym, lookback)
+        except Exception as e:
+            print("Error to check Intra for '%s': %s" % (tic, e))
+            res[tic] = None
+    return res
+
 def checkMoneyFlow(symbol: SymbolHistory, lookback=20, intras=None, halfsess=False):
     # dates = symbol.time.iloc[-period:].reset_index(drop=True)
 
@@ -73,10 +122,11 @@ def checkMoneyFlow(symbol: SymbolHistory, lookback=20, intras=None, halfsess=Fal
     priceChg = symbol.close.diff().iloc[-lookback:].reset_index(drop=True)
     date = pd.to_datetime(symbol.time.iloc[-lookback:].reset_index(drop=True), unit='s')
     dailyStat = Statistics.dailyStat(symbol, lookback=lookback)
+    movingDir = Statistics.getMovingDirection(symbol.close.iloc[-lookback-10:])
 
     signal = []
     for i in range(5,lookback):
-        p = dailyStat.loc[i]
+        p = dailyStat.iloc[i]
         s = ''
         if priceChg[i] < 0 and p['volRsiChg'] >= 20:
             s += 'VolRsiBigIncWhenPriceDrop '
@@ -84,10 +134,10 @@ def checkMoneyFlow(symbol: SymbolHistory, lookback=20, intras=None, halfsess=Fal
             s += 'VolRsiRecoverWhenPriceDrop '
         if p['volRsiChg'] >= 15 and p['volRsi'] > 50:
             s += 'VolRsiBigInc>50 ' 
-        if all([p['volRsiChg'] > 0, dailyStat.loc[i-1]['volRsiChg'] > 0,
+        if all([p['volRsiChg'] > 0, dailyStat.iloc[i-1]['volRsiChg'] > 0,
                 priceChg[i] < 0, priceChg[i-1] < 0]):
             s += 'VolRsiPosDiver '
-        if p['volRsiChg'] - dailyStat.loc[i-1]['volRsiChg'] >= 20:
+        if p['volRsiChg'] - dailyStat.iloc[i-1]['volRsiChg'] >= 20:
             s += 'VolRsiBigSwing '
 
         # if p['volRsi'] > 95:
