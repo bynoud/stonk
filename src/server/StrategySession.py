@@ -79,8 +79,8 @@ class BacktestSession:
                 def _defaultFilter(x):
                     return (
                         x.len>=100 and 
-                        x.sma(src='volumn',window=50).iloc[-1]>=500000 and 
-                        2.0 < x.close.iloc[-1] < 60.0 and
+                        x.sma(src='volumn',window=50).iloc[-1]>=200000 and 
+                        2.0 < x.close.iloc[-1] and
                         len(x.name) == 3 # To remove Derative ticket...
                     )
                 filerFunc = _defaultFilter

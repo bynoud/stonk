@@ -842,6 +842,7 @@ def equalWeightedIndex(symbols, tickets=None, corrected=False, refval=1000.0):
     dfsum = df.sum(axis=1)
     adjratio = (df * isact.shift()).sum(axis=1) / dfsum
 
+    print('sum0', dfsum.iloc[0])
     ratio = [refval / dfsum.iloc[0]]
     for i in range(1,len(df)):
         ratio.append(ratio[-1] * adjratio.iloc[i])
@@ -858,7 +859,7 @@ def mktcapWeightedIndex(symbols, tickets, floatShares, refval=1000.0):
 
     return equalWeightedIndex(df, corrected=True, refval=refval)
 
-def getAllSymbol(dayNum:int=365*2+50, exchange: str = 'HOSE HNX'):
+def getAllSymbols(dayNum:int=365*2+50, exchange: str = 'HOSE HNX'):
     import StockAPI, Symbol
     tickets = StockAPI.getAllTickets(exchange)
     print("Getting price history of %d Stocks ..." % len(tickets), end="", flush=True)
@@ -868,7 +869,7 @@ def getAllSymbol(dayNum:int=365*2+50, exchange: str = 'HOSE HNX'):
         if len(tic) != 3:
             continue
         symbol = Symbol.SymbolHistory(tic, dayNum=dayNum)
-        if symbol.len < 100 or symbol.sma(src='volumn',window=50).iloc[-1]<200000:
+        if symbol.len < 50 or symbol.sma(src='volumn',window=50).iloc[-1]<200000:
             continue
         syms[tic] = symbol
         cnt -= 1
@@ -878,12 +879,15 @@ def getAllSymbol(dayNum:int=365*2+50, exchange: str = 'HOSE HNX'):
     print(" Done")
     return syms
 
-def marketIndexes(symbols, industries, rolling=20):
-    close = _combineSymbol(symbols)
+_IGNORED_SECTORS = ['Health Care']
+
+def marketIndexes(close, industries, rolling=20):
+    # close = _combineSymbol(symbols)
     indexes = {}
     sectors = {}
     sectorAbs = {}
     relativeIndexes = {}
+    print('market')
     indexes['Whole Market'] = equalWeightedIndex(close, corrected=True)
 
     def incrPerc(ps):
@@ -891,6 +895,9 @@ def marketIndexes(symbols, industries, rolling=20):
     mktIncr = incrPerc(indexes['Whole Market'])
 
     for industry,tickets in industries.items():
+        if industry in _IGNORED_SECTORS:
+            continue
+        print(industry)
         indexes[industry] = equalWeightedIndex(close, tickets=tickets, corrected=True)
         sectorIncr = incrPerc(indexes[industry])
         relativeIndexes[industry] = sectorIncr - mktIncr
@@ -903,3 +910,20 @@ def marketIndexes(symbols, industries, rolling=20):
         sectors[industry] = pd.DataFrame(sector)
     return {'indexes': pd.DataFrame(indexes), 'relindexes': relativeIndexes, 'sectors': sectors, 'sectorAbs': sectorAbs}
 
+def correctIndexes(df, fromIdx=-200):
+    # df = df.iloc[fromIdx:]
+    res = {}
+    for key in df.keys():
+        subdf = df[key].iloc[fromIdx:]
+        res[key] = subdf / subdf.iloc[0]
+    return pd.DataFrame(res) 
+
+def getMarketIndexes():
+    symbols = getAllSymbols()
+    tickets = list(symbols.keys())
+    import StockAPI
+    industries = StockAPI.getIndustries(tickets)
+    close = _combineSymbol(symbols)
+    closeMa20 = close.rolling(window=20).mean().iloc[19:]
+    indexes = marketIndexes(closeMa20, industries, rolling=1)
+    return indexes, industries, symbols

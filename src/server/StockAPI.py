@@ -116,7 +116,9 @@ def getIndustries(tickets=None):
     def selTic(tic):
         return len(tic)==3 and (tickets is None or tic in tickets)
     for item in j['data']:
-        res[item['industryNameEn']] = list(filter(selTic, item['codeList'].split(',')))
+        codeList = list(filter(selTic, item['codeList'].split(',')))
+        if len(codeList) > 0:
+            res[item['industryNameEn']] = codeList
     return res
 
 # def getAllTickets(exchange: str = "HOSE HNX"):
