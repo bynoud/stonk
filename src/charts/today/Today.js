@@ -2,6 +2,7 @@
 import React from "react";
 import Chart from './Chart';
 
+import {ws_open} from '../../connectors/api'
 
 const green_color = [
 	'#D8F5D1',
@@ -59,12 +60,15 @@ const TodayChart = ({ticket, data}) => {
 
   // const data = React.useMemo(() => getData(ticket), [])
 
-  return <Chart  type="hybrid" width={1280} ratio={1.5} data={data} />
+  return <Chart  type="hybrid" width={1200} height={500} ratio={1.5} data={data} />
+  // return <Chart  type="hybrid" width={400} height={200} ratio={1.5} data={data} />
 }
 
 const Today = () => {
   const [data, setData] = React.useState(null)
   const [state, _setState] = React.useState({ticket:'', waiting: false})
+
+  const [socket, setSocket] = React.useState(null);
 
   // const setState = (obj) => {
   //   let newState = Object.assign({}, state, obj)
@@ -89,7 +93,8 @@ const Today = () => {
     };
     console.log('getData .......', state.ticket)
     setState({waiting:true})
-    fetch('http://localhost:5000/today-test', requestOptions)
+    // fetch('http://localhost:5000/today-test', requestOptions)
+    fetch('http://localhost:5000/abv-test', requestOptions)
       .then(response => response.json())
       .then(data => {
         if (data.status != 'ok') {
@@ -101,7 +106,7 @@ const Today = () => {
           // onFetched();
           setData(data.payload.map( d => {
             d.date = new Date(d.time * 1000); 
-            d.volume = d.volumn;
+            // d.volume = d.volumn;
             return d
           }))
         }
@@ -122,8 +127,19 @@ const Today = () => {
 
   console.log('start Today')
 
+  // React.useEffect(() => {
+  //   const newSocket = ws_open();
+  //   newSocket.on('my_response', (msg) => console.log("WS reponse", msg))
+  //   setSocket(newSocket);
+  //   return () => newSocket.close();
+  // }, [setSocket]);
+  // const testMe = () => {
+  //   console.log("sending");
+  //   socket.emit('my_event', {data:'my data here'})
+  // }
+
   return <div>
-    {/* <button onClick={testpost}>Clickme</button> */}
+    {/* { socket ? <button onClick={testMe}>Clickme</button> : <div>Not connected</div>} */}
     <form onSubmit={getData} >
       <fieldset>
         <label>

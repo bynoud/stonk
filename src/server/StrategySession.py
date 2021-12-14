@@ -2,7 +2,7 @@
 import pickle
 import pandas as pd
 import StockAPI
-from Symbol import SymbolHistory
+from Symbol import SymbolHistory, getAllSymbolHistory
 from StrategyCommon import run_backtest, Decision
 from MovingAverageStrategy import get_best_double_ma
 import MoneyFlowStrategy
@@ -10,21 +10,21 @@ import HeikinAshiStrategy
 import Signal
 import StockDB
 
-def getAllSymbolHistory(dayNum:int=365*2+50, tickets=None, exchange: str = 'HOSE HNX'):
-    if tickets is None:
-        tickets = StockAPI.getAllTickets(exchange)
-    print("Getting price history of %d Stocks ..." % len(tickets), end="", flush=True)
-    price = {}
-    cnt = 10
-    for tic in tickets:
-        symbol = SymbolHistory(tic, StockAPI.getPriceHistory(tic, dayNum))
-        price[tic] = symbol
-        cnt -= 1
-        if cnt == 0:
-            print(".", end="", flush=True)
-            cnt = 10
-    print(" Done")
-    return price
+# def getAllSymbolHistory(dayNum:int=365*2+50, tickets=None, exchange: str = 'HOSE HNX'):
+#     if tickets is None:
+#         tickets = StockAPI.getAllTickets(exchange)
+#     print("Getting price history of %d Stocks ..." % len(tickets), end="", flush=True)
+#     price = {}
+#     cnt = 10
+#     for tic in tickets:
+#         symbol = SymbolHistory(tic, StockAPI.getPriceHistory(tic, dayNum))
+#         price[tic] = symbol
+#         cnt -= 1
+#         if cnt == 0:
+#             print(".", end="", flush=True)
+#             cnt = 10
+#     print(" Done")
+#     return price
 
 def _process_intra(intra):
     v = intra
@@ -80,7 +80,7 @@ class BacktestSession:
                     return (
                         x.len>=100 and 
                         x.sma(src='volumn',window=50).iloc[-1]>=200000 and 
-                        2.0 < x.close.iloc[-1] and
+                        2.0 < x.close.iloc[-1] < 110 and
                         len(x.name) == 3 # To remove Derative ticket...
                     )
                 filerFunc = _defaultFilter

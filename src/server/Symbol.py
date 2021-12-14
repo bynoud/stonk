@@ -231,4 +231,19 @@ class SymbolIntra:
         return 1 if self._intra is None else (self._sell['mv'] * self._sell['mp']).sum()
     
 
+def getAllSymbolHistory(dayNum:int=365*2+50, tickets=None, exchange: str = 'HOSE HNX'):
+    if tickets is None:
+        tickets = StockAPI.getAllTickets(exchange)
+    print("Getting price history of %d Stocks ..." % len(tickets), end="", flush=True)
+    price = {}
+    cnt = 10
+    for tic in tickets:
+        symbol = SymbolHistory(tic, StockAPI.getPriceHistory(tic, dayNum))
+        price[tic] = symbol
+        cnt -= 1
+        if cnt == 0:
+            print(".", end="", flush=True)
+            cnt = 10
+    print(" Done")
+    return price
     

@@ -3,22 +3,18 @@ import React from "react";
 import PropTypes from "prop-types";
 
 import { format } from "d3-format";
-import { timeFormat } from "d3-time-format";
 
 import { set } from "d3-collection";
 import { scaleOrdinal, schemeCategory10, scalePoint } from  "d3-scale";
 
-import { ChartCanvas, Chart, ZoomButtons } from "react-stockcharts";
+import { ChartCanvas, Chart } from "react-stockcharts";
 import {
-	BarSeries,
 	StackedBarSeries,
-	// VolumeProfileSeries,
 	CandlestickSeries,
 	LineSeries,
 	AreaSeries,
 	RSISeries,
 } from "react-stockcharts/lib/series";
-import VolumeProfileSeries from './VolumeProfileSeries';
 import { XAxis, YAxis } from "react-stockcharts/lib/axes";
 import {
 	CrossHairCursor,
@@ -37,39 +33,45 @@ import { change } from "react-stockcharts/lib/indicator";
 import { fitWidth } from "react-stockcharts/lib/helper";
 import { last } from "react-stockcharts/lib/utils";
 
-class VolumeProfileBySessionChart extends React.Component {
+import {getTicketPrice, favoriteTicket} from '../../connectors/api'
+
+class MiniChart extends React.Component {
+	// state = {initialData: null};
 	constructor(props) {
 		super(props);
-		this.saveNode = this.saveNode.bind(this);
-		this.resetYDomain = this.resetYDomain.bind(this);
-		this.handleReset = this.handleReset.bind(this);
+		console.log("Creating Chart", this.props.ticket)
+		this.state = {initialData: null}
+		// this.refresh()
 	}
-	componentWillMount() {
-		this.setState({
-			suffix: 1
-		});
-	}
-	saveNode(node) {
-		this.node = node;
-	}
-	resetYDomain() {
-		this.node.resetYDomain();
-	}
-	handleReset() {
-		this.setState({
-			suffix: this.state.suffix + 1
-		});
+
+	refresh() {
+		let ticket = this.props.ticket
+        console.log("refreshing", ticket)
+        getTicketPrice(ticket).then(data => this.setState({initialData:data.map( d => {
+			d.date = new Date(d.time * 1000); 
+			return d
+		})}))
+    }
+
+	componentDidMount() {
+		this.refresh();
 	}
 
 	render() {
+		console.log("Rendering", this.props)
+		const initialData = this.state.initialData
+		if (initialData == null) {
+			// this.refresh();
+			return <div>Wating</div>;
+		}
 
-		const changeCalculator = change();
-
-		const { type, data: initialData, width, height, ratio } = this.props;
+		// const { type, ticket, data: initialData, width, height, ratio } = this.props;
+		const { type, ticket, isFav, socket, width, height, ratio } = this.props;
 		const priceChartHeight = height * 0.72;
 		const volChartHeight = priceChartHeight / 2.5;
 		const indexChartHeight = height * 0.26;
-		console.log('height', height, priceChartHeight, volChartHeight, indexChartHeight);
+
+		console.log("MiniChart", ticket, initialData)
 
 		const smaVolume50 = sma()
 			.id(3)
@@ -89,24 +91,31 @@ class VolumeProfileBySessionChart extends React.Component {
 			displayXAccessor,
 		} = xScaleProvider(calculatedData);
 
-		const start = xAccessor(last(data))+1;
-		const end = xAccessor(data[Math.max(0, data.length - 150)]);
+		const start = xAccessor(last(data)) + 1;
+		const end = xAccessor(data[Math.max(0, data.length - 81)]);
 		const xExtents = [start, end];
-		console.log("xextend", xExtents)
 
 		const f = scaleOrdinal(schemeCategory10)
 			.domain(set(data.map(d => d.region)));
 
 		const fill = (d, i) => (i==0)?'#6BA583':(i==1)?'#FF0000':'#A9A9B0';
 
-		return (
-			<ChartCanvas ref={this.saveNode} height={height}
+		const favUpdate = () => {
+			socket.emit('appdb',
+						{op: isFav ? 'delFavorite' : 'addFavorite',
+						params:{tic:ticket}});
+		}
+
+		return (<div>
+			<label>{ticket}</label>
+			{/* <button onClick={() => favoriteTicket(ticket,isFav?'remove':'add')}>{isFav ? 'Unfavor':'Favor'}</button> */}
+			<button onClick={favUpdate}>{isFav ? 'Unfavor':'Favor'}</button>
+			<ChartCanvas height={height}
 				width={width}
 				ratio={ratio}
-				// margin={{ left: 80, right: 80, top: 10, bottom: 30 }}
-				margin={{ left: 1, right: 40, top: 1, bottom: 1 }}
+				margin={{ left: 1, right: 10, top: 1, bottom: 1 }}
 				type={type}
-				seriesName={`MSFT_${this.state.suffix}`}
+				seriesName={ticket}
 				data={data}
 				xScale={xScale}
 				xAccessor={xAccessor}
@@ -130,21 +139,16 @@ class VolumeProfileBySessionChart extends React.Component {
 						orient="right"
 						displayFormat={format(".2f")} />
 
-					{/* <VolumeProfileSeries bySession orient="right" showSessionBackground
-					 /> */}
 
 					<CandlestickSeries />
 					<LineSeries yAccessor={d => d.fitval} stroke="blue" 
 						defined={d => !isNaN(null) && (d !== null) }/>
 					<LineSeries yAccessor={d => d.fitCurve} stroke="red" 
 						defined={d => !isNaN(null) && (d !== null) }/>
-					<EdgeIndicator itemType="last" orient="right" edgeAt="right"
-						yAccessor={d => d.close} fill={d => d.close > d.open ? "#6BA583" : "#FF0000"}/>
+					{/* <EdgeIndicator itemType="last" orient="right" edgeAt="right"
+						yAccessor={d => d.close} fill={d => d.close > d.open ? "#6BA583" : "#FF0000"}/> */}
 
 					<OHLCTooltip origin={[0, 10]} />
-					<ZoomButtons
-						onReset={this.handleReset}
-					/>
 
 				</Chart>
 
@@ -159,7 +163,7 @@ class VolumeProfileBySessionChart extends React.Component {
 						orient="left"
 						displayFormat={format(".4s")} />
 
-					{/* <BarSeries yAccessor={d => d.volume}
+					{/* <BarSeries yAccessor={d => d.volumn}
 						// widthRatio={0.95}
 						// opacity={0.3}
 						fill={d => d.close > d.open ? "#6BA583" : "#FF0000"}
@@ -182,14 +186,14 @@ class VolumeProfileBySessionChart extends React.Component {
 					{/* <YAxis axisAt="right"
 						orient="right"
 						tickValues={[30, 50, 70]}
-						/> */}
-					{/* <MouseCoordinateY
+						/>
+					<MouseCoordinateY
 						at="right"
 						orient="right"
 						displayFormat={format(".2f")} /> */}
 
 					<RSISeries yAccessor={d => d.volRsi} 
-						overSold='75' overBought='25' middle='50'
+						overSold={100} overBought={0} middle={50}
 						stroke={{insideThreshold:'#d60dd6'}}
 					/>
 
@@ -200,21 +204,22 @@ class VolumeProfileBySessionChart extends React.Component {
 
 				<CrossHairCursor />
 			</ChartCanvas>
+		</div>
 		);
 	}
 }
 
-VolumeProfileBySessionChart.propTypes = {
+MiniChart.propTypes = {
 	data: PropTypes.array.isRequired,
 	width: PropTypes.number.isRequired,
 	ratio: PropTypes.number.isRequired,
 	type: PropTypes.oneOf(["svg", "hybrid"]).isRequired,
 };
 
-VolumeProfileBySessionChart.defaultProps = {
+MiniChart.defaultProps = {
 	type: "svg",
 	height: 600,
 };
-VolumeProfileBySessionChart = fitWidth(VolumeProfileBySessionChart);
+MiniChart = fitWidth(MiniChart);
 
-export default VolumeProfileBySessionChart;
+export default MiniChart;

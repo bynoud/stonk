@@ -152,9 +152,21 @@ def getIndustries(tickets=None):
 #         except (json.decoder.JSONDecodeError, IndexError) as e:
 #             logging.error('Failed to parse the history response for "%s": "%s"' % (ticket, e.msg))
 
-def __getPriceHistory(ticket: str, fromDate: datetime.datetime, tillDate: datetime.datetime):
-    r = requests.get('https://dchart-api.vndirect.com.vn/dchart/history?resolution=D&symbol=%s&from=%0d&to=%0d' %
-                        (ticket, fromDate.timestamp(), tillDate.timestamp()))
+def __getPriceHistory(ticket: str, fromDate: datetime.datetime, tillDate: datetime.datetime, resol: str='D', provider:str='vnd'):
+    # print('history?resolution=%s&symbol=%s&from=%0d&to=%0d' %
+    #                     (resol, ticket, fromDate.timestamp(), tillDate.timestamp()))
+    if provider=='vnd':
+        r = requests.get('https://dchart-api.vndirect.com.vn/dchart/history?resolution=%s&symbol=%s&from=%0d&to=%0d' %
+                        (resol, ticket, fromDate.timestamp(), tillDate.timestamp()))
+    elif provider=='ssi':
+        r = requests.get('https://iboard.ssi.com.vn/dchart/api/history?resolution=%s&symbol=%s&from=%s&to=%s' %
+                        (resol, ticket, fromDate.timestamp(), tillDate.timestamp()))
+    elif provider=='mbs':
+        r = requests.get('https://chartdata1.mbs.com.vn/pbRltCharts/chart/history?resolution=%s&symbol=%s&from=%0d&to=%0d' %
+                        (resol, ticket, fromDate.timestamp(), tillDate.timestamp()))
+    else:
+        raise Error("Unknown provider %s" % provider)
+
     if r.status_code != 200:
         raise Error('Failed to get history of "%s": "%s"' % (ticket, r.reason))
     else:
@@ -166,11 +178,21 @@ def __getPriceHistory(ticket: str, fromDate: datetime.datetime, tillDate: dateti
         except (json.decoder.JSONDecodeError, IndexError) as e:
             logging.error('Failed to parse the history response for "%s": "%s"' % (ticket, e.msg))
 
-def getPriceHistory(ticket: str, dayNum: int, tillDate = -1):
+def getPriceHistory(ticket: str, dayNum: int, tillDate = -1, resol='D', provider='vnd'):
     if tillDate == -1: tillDate = datetime.datetime.now()
     fromDate = tillDate - datetime.timedelta(days=dayNum)
     logging.debug('Getting History for "%s" from "%s" - "%s" ...' % (ticket, fromDate.ctime(), tillDate.ctime()))
-    j = __getPriceHistory(ticket, fromDate, tillDate)
+    j = __getPriceHistory(ticket, fromDate, tillDate, resol, provider)
+    return None if (j==None) else {'high': j['h'],
+                                    'low': j['l'],
+                                    'open': j['o'],
+                                    'close': j['c'],
+                                    'volumn': j['v'],
+                                    'time': j['t']}
+
+def getPriceHistory2(ticket: str, fromDate: datetime, tillDate: datetime, resol='D', provider='vnd'):
+    logging.debug('Getting History for "%s" from "%s" - "%s" ...' % (ticket, fromDate.ctime(), tillDate.ctime()))
+    j = __getPriceHistory(ticket, fromDate, tillDate, resol, provider)
     return None if (j==None) else {'high': j['h'],
                                     'low': j['l'],
                                     'open': j['o'],
@@ -198,7 +220,8 @@ def getTradingDate(dayNum: int, tillDate = -1):
     if tillDate == -1: tillDate = datetime.datetime.now()
     fromDate = tillDate - datetime.timedelta(days=dayNum)
     j = __getPriceHistory('VNM', fromDate, tillDate)
-    if j == None: return None
+    if j == None: raise Error("Failed to get Trading days")
+    # return [datetime.datetime.fromtimestamp(x) for x in j['t']]
     return j['t']
 
 # def getIntradayBook(ticket: str):
@@ -413,8 +436,8 @@ def intradaySearch_vcsc(tic, date=None, cookie='', dateStr=''):
 
     try:
         j = json.loads(r.text)
-    except json.decoder.JSONDecodeError:
-        raise Error('Failed to decode Intra for "%s": %s' % (tic, txt))
+    except json.decoder.JSONDecodeError as err:
+        raise Error('Failed to decode Intra for "%s": %s' % (tic, err.msg))
 
     if len(j['content']) == 0:
         return None # If content is already empty, just save None, so later retry dont need to refetch

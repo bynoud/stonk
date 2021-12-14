@@ -8,6 +8,7 @@ import Intra from './charts/Intra';
 // import Intra from './charts/Intra_combine';
 import Daily from './charts/Daily';
 import Today from './charts/today/Today';
+import Group from './charts/groups/Group';
 
 // import ChartComponent from './charts/SChart/index';
 // import ChartComponent from './charts/SChart/Area/index';
@@ -34,7 +35,7 @@ function App() {
     // </div>
     <Router>
       <div>
-        <ul>
+        {/* <ul>
           <li>
             <Link to="/">Home</Link>
           </li>
@@ -43,7 +44,7 @@ function App() {
           </li>
         </ul>
 
-        <hr />
+        <hr /> */}
 
         {/*
           A <Switch> looks through all its children <Route>
@@ -64,6 +65,9 @@ function App() {
           </Route>
           <Route path="/today">
             <Today />
+          </Route>
+          <Route path="/group">
+            <Group />
           </Route>
         </Switch>
       </div>
