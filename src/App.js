@@ -4,7 +4,7 @@ import './App.css';
 // import Intraday from './charts/Intraday';
 // import Extdev from './charts/Extdev';
 // import LineChart from './charts/Chartjs';
-import Intra from './charts/Intra';
+// import Intra from './charts/Intra';
 // import Intra from './charts/Intra_combine';
 import Daily from './charts/Daily';
 import Today from './charts/today/Today';
@@ -57,9 +57,9 @@ function App() {
           <Route exact path="/">
             <Daily />
           </Route>
-          <Route path="/intra">
+          {/* <Route path="/intra">
             <Intra />
-          </Route>
+          </Route> */}
           <Route path="/test">
             <ChartComponent />
           </Route>

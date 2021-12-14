@@ -8,7 +8,7 @@ from MovingAverageStrategy import get_best_double_ma
 import MoneyFlowStrategy
 import HeikinAshiStrategy
 import Signal
-import StockDB
+# import StockDB
 
 # def getAllSymbolHistory(dayNum:int=365*2+50, tickets=None, exchange: str = 'HOSE HNX'):
 #     if tickets is None:

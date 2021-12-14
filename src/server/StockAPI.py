@@ -4,7 +4,7 @@ import requests, json, datetime, logging, pickle
 import pandas as pd
 import numpy as np
 from  Symbol import SymbolHistory
-import StockDB
+# import StockDB
 
 _OPT = {
     # 'intraServer': 'vcsc',

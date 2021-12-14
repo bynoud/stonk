@@ -18,9 +18,9 @@ import {
   Cell,
 } from 'recharts';
 import { scaleLog } from 'd3-scale';
-import intraData from '../data/intra.json';
 
-const intra = JSON.parse(intraData);
+// import intraData from '../data/intra.json';
+// const intra = JSON.parse(intraData);
 
 // const data = [
 //   {
