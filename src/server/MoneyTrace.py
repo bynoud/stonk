@@ -2,7 +2,7 @@
 from http.client import NO_CONTENT
 import StockAPI, Symbol
 import pandas as pd
-import pickle
+import pickle, os
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -11,14 +11,33 @@ _G = {
     'TRADEDAY': None,
     'REFETCH': 20, # refetch any missing data if it within 7 days
     'CACHED': {},
+    'ABV_CACHED': {},
 }
 
-def _getLastDate(daynum: int) -> datetime:
+def updateTradingDays():
     today = datetime.now().strftime("%D")
-    # print("Get today %s - %s" % (today, _G['TODAY']))
-    if _G['TODAY'] != today:
-        _G['TRADEDAY'] = [datetime.fromtimestamp(x).replace(hour=15) for x in StockAPI.getTradingDate(300)]
-        _G['TODAY'] = today
+    # print("Get today %s - %s - %s" % (today, _G['TODAY'], daynum), end='')
+    # if _G['TODAY'] != today:
+    _G['TRADEDAY'] = [datetime.fromtimestamp(x).replace(hour=15) for x in StockAPI.getTradingDate(200)]
+    _G['TODAY'] = today
+    _G['ABV_CACHED'] = {}
+
+def getTradingDayIndex(live):
+    # _updateTradingDays()
+    tdel = datetime.now() - _G['TRADEDAY'][-1]
+    # print("TradingDays index", live, _G['TRADEDAY'][-1], tdel)
+    if live or tdel.days >= 0:
+        return 0
+    return 1
+
+def _getLastDate(daynum: int) -> datetime:
+    # now = datetime.now()
+    # today = now.strftime("%D")
+    # # print("Get today %s - %s - %s" % (today, _G['TODAY'], daynum), end='')
+    # if _G['TODAY'] != today:
+    #     _G['TRADEDAY'] = [datetime.fromtimestamp(x).replace(hour=15) for x in StockAPI.getTradingDate(300)]
+    #     _G['TODAY'] = today
+    # # print(" -> %s" % (_G['TRADEDAY'][-1-daynum]))
     return _G['TRADEDAY'][-1-daynum]
 
 # def _getPrice(ticket:str, fromDate: datetime, tillDate: datetime, resol:str):
@@ -63,7 +82,7 @@ def _getLastDate(daynum: int) -> datetime:
 
 
 def _getPriceMinute_old(ticket:str, dayNum:int=100, tillDate:int=0):
-    print("Fetching Minute prices for '%s' last %0d days ..." % (ticket, dayNum))
+    print("Fetching Minute prices for '%s' last %0d days till %s ..." % (ticket, dayNum, _getLastDate(tillDate)))
     res = {'prices': [], 'lastNotFoundIdx': -1}
     # prices = pd.DataFrame()
     dataFolder = Path('./data/intra1m_bk/%s/%s' % (ticket[0].lower(), ticket))
@@ -129,8 +148,8 @@ def _getPriceMinute_old(ticket:str, dayNum:int=100, tillDate:int=0):
     
     return res['prices']
 
-def _getPriceMinute(ticket:str, dayNum:int=100, tillDate:int=0):
-    print("Fetching Minute prices for '%s' last %0d days ..." % (ticket, dayNum))
+def _getPriceMinute(ticket:str, dayNum:int=100, tillDate:int=0, getLive=False):
+    # print("Fetching Minute prices for '%s' last %0d days till %s ..." % (ticket, dayNum, _getLastDate(tillDate)))
     res = {'prices': [], 'lastNotFoundIdx': -1, 'needWriteback': False}
     # prices = pd.DataFrame()
     # dataFolder = Path('./data/intra1m_bk/%s/%s' % (ticket[0].lower(), ticket))
@@ -139,18 +158,27 @@ def _getPriceMinute(ticket:str, dayNum:int=100, tillDate:int=0):
 
     foldern = './data/intra1m/%s/' % ticket[0].lower()
     filen = foldern + ticket + "-1m.pkl"
-    try:
-        curprices = _G['CACHED'][ticket]
-        print("price from cache")
-    except:
+    if getLive:
+        print("getlive data for %s" % ticket)
+        _G['CACHED'][ticket] = {}
+
         try:
-            with open(filen,'rb') as fh:
-                _G['CACHED'][ticket] = pickle.load(fh)
-                print("price from file")
+            os.remove(filen)
+        except FileNotFoundError:
+            pass
+    else:
+        try:
+            _ = _G['CACHED'][ticket]
+            # print("price from cache")
         except:
-            _G['CACHED'][ticket] = {}
-            print("price empty")
-        curprices = _G['CACHED'][ticket]
+            try:
+                with open(filen,'rb') as fh:
+                    _G['CACHED'][ticket] = pickle.load(fh)
+                    # print("price from file")
+            except:
+                _G['CACHED'][ticket] = {}
+                # print("price empty")
+    curprices = _G['CACHED'][ticket]
 
     def appendResult(intra, date):
         #res['prices'] = pd.concat([res['prices'], intra], axis=0, ignore_index=True)
@@ -211,7 +239,7 @@ def _getPriceMinute(ticket:str, dayNum:int=100, tillDate:int=0):
                 fetchLastNotFound(i)
 
     if res['needWriteback']:
-        print("Writeback data for %s", ticket)
+        print("Writeback data for %s" % ticket)
         with open(filen, 'wb') as fh: pickle.dump(curprices, fh)
 
     # for debug
@@ -222,13 +250,15 @@ def ticketFilter(tickets=None, filerFunc='_default_'):
     if tickets is None:
         tickets = StockAPI.getAllTickets('hose hnx upcom')
     symbols = Symbol.getAllSymbolHistory(tickets=tickets)
+    tradeDays = symbols['VNM'].time
 
     if filerFunc == '_default_':
         # filerFunc = lambda(x: x.len>=100 and x.sma(src='volumn',window=50).iloc[-1]>=100000)
         def _defaultFilter(x):
             return (
                 x.len>50 and 
-                x.sma(src='volumn',window=50).iloc[-1]>=200000 and 
+                x.time.iloc[-49] == tradeDays.iloc[-49] and # remove all ticket with non-trade days
+                (x.sma(src='volumn',window=50).iloc[-1] * x.close.iloc[-1]) >= 7000000 and 
                 2.0 < x.close.iloc[-1] < 110 and
                 len(x.name) == 3 # To remove Derative ticket...
             )
@@ -239,11 +269,17 @@ def ticketFilter(tickets=None, filerFunc='_default_'):
     pickle.dump(tickets, open('data/selTickets.pkl', 'wb'))
 
 def fetchAllMinutePrice(tickets=None, dayNum=100, tillDate=0):
+    updateTradingDays()
+    tillDate = getTradingDayIndex(tillDate==0)
     if tickets is None:
         tickets = StockAPI.getAllTickets()
     for tic in tickets:
         _getPriceMinute(tic,dayNum,tillDate)
 
+def updateAbvAll(tickets, tillDate):
+    fetchAllMinutePrice(tickets, tillDate=tillDate)
+    for tic in tickets:
+        _G['ABV_CACHED'][tic] = _abvRsi(tic, tillDate=tillDate)
 
 def AccumuleBalanceVolume(df, refPrice=None):
     if refPrice is None: refPrice = df.close.iloc[0]
@@ -274,8 +310,9 @@ def AccumuleBalanceVolume(df, refPrice=None):
 
     return abv
 
-def abvRsi(ticket,dayNum=100,tillDate=0, ignoreStartEnd=False):
-    m1 = _getPriceMinute(ticket,dayNum,tillDate)
+def _abvRsi(ticket,dayNum=100,tillDate=0, ignoreStartEnd=False, getLive=False):
+    tillDate = getTradingDayIndex(tillDate==0)
+    m1 = _getPriceMinute(ticket,dayNum,tillDate,getLive)
     daily = []
     refPrice = None
     for df in m1:
@@ -295,6 +332,21 @@ def abvRsi(ticket,dayNum=100,tillDate=0, ignoreStartEnd=False):
     # print(daily.tail())
     return daily
 
+def abvRsi(tic, tillDate=0, getLive=False, refresh=False):
+    if refresh or getLive:
+        updateTradingDays()
+    if refresh or getLive or tic not in _G['ABV_CACHED']:
+        _G['ABV_CACHED'][tic] = _abvRsi(tic, tillDate=tillDate, getLive=getLive)
+    return _G['ABV_CACHED'][tic]
+
+def getLowRsiTicket(tickets, tillDate):
+    retTickets = []
+    for tic in tickets:
+        abv = abvRsi(tic, tillDate=tillDate)
+        if abv['abvRsi'].iloc[-20:].min() < 5:
+            retTickets.append(tic)
+    return retTickets
+    
 
 def volRsi(buyVol, sellVol):
     # chg = (buyVol - sellVol) / (buyVol + sellVol)

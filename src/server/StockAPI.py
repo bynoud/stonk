@@ -1,6 +1,6 @@
 
 from os import error
-import requests, json, datetime, logging, pickle
+import requests, json, datetime, logging, pickle, time
 import pandas as pd
 import numpy as np
 from  Symbol import SymbolHistory
@@ -121,6 +121,27 @@ def getIndustries(tickets=None):
             res[item['industryNameEn']] = codeList
     return res
 
+def getTicketDetail(tic):
+    s = requests.Session()
+    r = s.get('https://plus24.mbs.com.vn/apps/StockBoard/MBS/chi-tiet-ma.html', data={'id':tic})
+    if r.status_code != 200:
+        print("Error: getTicketDetail failed get1: %s" % r.text)
+        return
+    r = s.get('https://plus24.mbs.com.vn/pbapi/api/getToken', data={'_': round(time.time()*1000)})
+    if r.status_code != 200:
+        print("Error: getTicketDetail failed get2: %s" % r.text)
+        return
+    token = json.loads(r.text)
+    r = s.get('https://plus24.mbs.com.vn/uaa/token')
+    r = s.post('https://plus24.mbs.com.vn/pbapi/api/secOverview',
+            data={'postData':json.dumps({"secCode":tic, "lang":"en"})},
+            headers={'x-token':token, 'x-requested-with': 'XMLHttpRequest'})
+    if r.status_code != 200:
+        print("Error: getTicketDetail failed post: %s" % r.text)
+        return
+    j = json.loads(r.text)
+    return r
+
 # def getAllTickets(exchange: str = "HOSE HNX"):
 #     logging.info("Getting All Symbols from Exchange '%s'" % exchange)
 #     r = requests.get("https://iboard.ssi.com.vn/dchart/api/1.1/defaultAllStocks")
@@ -155,15 +176,16 @@ def getIndustries(tickets=None):
 def __getPriceHistory(ticket: str, fromDate: datetime.datetime, tillDate: datetime.datetime, resol: str='D', provider:str='vnd'):
     # print('history?resolution=%s&symbol=%s&from=%0d&to=%0d' %
     #                     (resol, ticket, fromDate.timestamp(), tillDate.timestamp()))
+    headers = {'User-Agent': 'Chrome/99.0.4844.51'}
     if provider=='vnd':
         r = requests.get('https://dchart-api.vndirect.com.vn/dchart/history?resolution=%s&symbol=%s&from=%0d&to=%0d' %
-                        (resol, ticket, fromDate.timestamp(), tillDate.timestamp()))
+                        (resol, ticket, fromDate.timestamp(), tillDate.timestamp()), headers=headers)
     elif provider=='ssi':
         r = requests.get('https://iboard.ssi.com.vn/dchart/api/history?resolution=%s&symbol=%s&from=%s&to=%s' %
-                        (resol, ticket, fromDate.timestamp(), tillDate.timestamp()))
+                        (resol, ticket, fromDate.timestamp(), tillDate.timestamp()), headers=headers)
     elif provider=='mbs':
         r = requests.get('https://chartdata1.mbs.com.vn/pbRltCharts/chart/history?resolution=%s&symbol=%s&from=%0d&to=%0d' %
-                        (resol, ticket, fromDate.timestamp(), tillDate.timestamp()))
+                        (resol, ticket, fromDate.timestamp(), tillDate.timestamp()), headers=headers)
     else:
         raise Error("Unknown provider %s" % provider)
 
@@ -176,18 +198,19 @@ def __getPriceHistory(ticket: str, fromDate: datetime.datetime, tillDate: dateti
                 raise Error('Server return Non-OK response for history of "%s"' % ticket)
             return j
         except (json.decoder.JSONDecodeError, IndexError) as e:
-            logging.error('Failed to parse the history response for "%s": "%s"' % (ticket, e.msg))
+            logging.error('Failed to parse the history response for "%s": "%s" : "%s"' %
+                (ticket, e.msg, r.text[:50]))
 
 def getPriceHistory(ticket: str, dayNum: int, tillDate = -1, resol='D', provider='vnd'):
     if tillDate == -1: tillDate = datetime.datetime.now()
     fromDate = tillDate - datetime.timedelta(days=dayNum)
     logging.debug('Getting History for "%s" from "%s" - "%s" ...' % (ticket, fromDate.ctime(), tillDate.ctime()))
     j = __getPriceHistory(ticket, fromDate, tillDate, resol, provider)
-    return None if (j==None) else {'high': j['h'],
-                                    'low': j['l'],
-                                    'open': j['o'],
-                                    'close': j['c'],
-                                    'volumn': j['v'],
+    return None if (j==None) else {'high': [float(x) for x in j['h']],
+                                    'low': [float(x) for x in j['l']],
+                                    'open': [float(x) for x in j['o']],
+                                    'close': [float(x) for x in j['c']],
+                                    'volumn': [int(x) for x in j['v']],
                                     'time': j['t']}
 
 def getPriceHistory2(ticket: str, fromDate: datetime, tillDate: datetime, resol='D', provider='vnd'):
@@ -729,10 +752,25 @@ def getIntradayHistory(symbol, lookback=20, matchedOnly=False):
 #     print(" Done")
 #     return price
 
+def getSharesOutstanding(tic):
+    query = """ query companyProfile($symbol: String!, $language: String) {
+            companyProfile(symbol: $symbol, language: $language) { symbol companyname __typename }
+            companyStatistics(symbol: $symbol) { symbol ttmtype marketcap sharesoutstanding __typename }
+        } """
+    r = requests.post("https://finfo-iboard.ssi.com.vn/graphql",
+        data={'operationName': "companyProfile", 
+              'variables': json.dumps({'symbol': tic, 'language': "vn"}),
+              'query': query})
+    if r.status_code != 200:
+        # logging.error("Failed to get Symbols '%s'" % r.reason)
+        print("Error: Failed to get getSharesOutstanding '%s'" % r.reason)
+        return 
+    j = json.loads(r.text)
+    return int(float(j['data']['companyStatistics']['sharesoutstanding']))
 
 from bs4 import BeautifulSoup
 
-def getFloatedShares(tickets, session=None):
+def getFloatedShares_byVietStock(tickets, session=None):
     # ticket = ticket.upper()
     # x = requests.get('https://en.vietstock.vn/vsSearchBox.ashx?q=%s&limit=5' % ticket)
     # url = ''

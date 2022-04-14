@@ -229,21 +229,54 @@ class SymbolIntra:
     @property
     def sellVal(self):
         return 1 if self._intra is None else (self._sell['mv'] * self._sell['mp']).sum()
-    
 
+class ConnectionError(Exception):
+    pass
+
+def _getSymbolHistory(tic, dayNum, i_providers):
+    providers = i_providers[:] # make a copy
+    provider = providers.pop()
+    try:
+        price = StockAPI.getPriceHistory(tic, dayNum, provider=provider)
+    except Exception as e:
+        print('Error during get Price for "%s" from "%s"L %s' % (tic, provider, e))
+        if len(providers) == 0:
+            raise ConnectionError("No more providers to try")
+        else:
+            price = _getSymbolHistory(tic, dayNum, providers)
+    return price
+
+import pickle, os
 def getAllSymbolHistory(dayNum:int=365*2+50, tickets=None, exchange: str = 'HOSE HNX'):
+    providers = ['vnd', 'ssi']
     if tickets is None:
         tickets = StockAPI.getAllTickets(exchange)
     print("Getting price history of %d Stocks ..." % len(tickets), end="", flush=True)
-    price = {}
+    try:
+        price = pickle.load(open('data/appdb/last_crash_price.pkl', 'rb'))
+    except FileNotFoundError:
+        price = {}
+    errorFound = False
     cnt = 10
     for tic in tickets:
-        symbol = SymbolHistory(tic, StockAPI.getPriceHistory(tic, dayNum))
+        try:
+            symbol = SymbolHistory(tic, _getSymbolHistory(tic, dayNum, providers))
+        except ConnectionError:
+            pickle.dump(price, open('data/appdb/last_crash_price.pkl', 'wb'))
+            errorFound = True
+            break
         price[tic] = symbol
         cnt -= 1
         if cnt == 0:
             print(".", end="", flush=True)
             cnt = 10
-    print(" Done")
+    if errorFound:
+        print("Error during fetch price. Latest database is saved in appdb")
+    else:
+        try:
+            os.remove('data/appdb/last_crash_price.pkl')
+        except FileNotFoundError:
+            pass
+        print(" Done")
     return price
     

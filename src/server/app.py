@@ -16,7 +16,7 @@ import MoneyTrace
 
 import pickle
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='templates/static')
 app.config['SECRET_KEY'] = 'secret!'
 CORS(app)
 socket_ = SocketIO(app, async_mode=None, cors_allowed_origins='*')
@@ -68,9 +68,16 @@ def start_new_session(debug=False):
     db['sess'] = ss
     print("New session is started %s @ %s" % (db, time.strftime("%A, %d. %B %Y %I:%M:%S %p")))
 
-@app.route('/')
-def index():
-    print("HOMEE")
+# @app.route('/')
+# def index():
+#     print("HOMEE")
+#     # return render_template('index.html', async_mode=socket_.async_mode)
+#     return render_template('index.html', async_mode=socket_.async_mode)
+
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def catch_all(path):
+    print('You want path: %s' % path)
     return render_template('index.html', async_mode=socket_.async_mode)
 
 #===========================================
@@ -249,19 +256,26 @@ def getTodayTest():
     return {'status':'ok', 'payload': df.to_dict(orient='records')}
 
 @app.route('/abv-test', methods = ['POST'])
-def getAbvTest(tillDate=1):
+def getAbvTest():
     params = request.get_json()
+    print('abvtest %s' % params)
     try:
         ticket = params['tic']
+        tillDate = params['tillDate']
+        refetch = params['refetch']
+        if 'refresh' in params:
+            refresh = params['refresh']
+        else:
+            refresh = 0
     except:
-        return {'status':'bad', 'reason':'No tic field is found'}
+        return {'status':'bad', 'reason':'Wrong param'}
     # try:
     #     price = pickle.load(open('data/tmp_price_%s.pkl' % ticket, 'rb'))
     # except:
     #     # sym = SymbolHistory(ticket, StockAPI.getPriceHistory(ticket, 365*2+50))
     #     price = StockAPI.getPriceHistory(ticket, 200)
     #     pickle.dump(price, open('data/tmp_price_%s.pkl' % ticket, 'wb'))
-    df = MoneyTrace.abvRsi(ticket, tillDate=tillDate)
+    df = MoneyTrace.abvRsi(ticket, tillDate=tillDate, getLive=refetch, refresh=refresh)
     df['volRsi'] = df.abvRsi
     abvSum = df.buyVol + df.sellVol
     df['buyVol'] = df.buyVol * df.volumn / abvSum
@@ -277,6 +291,21 @@ def getGroupedTickets():
     tickets = list(prices.keys())
     groups = StockAPI.getIndustries(tickets)
     return {'status':'ok','payload':groups}
+
+@app.route('/focus-tickets', methods=['POST'])
+def getFocusTickets():
+    params = request.get_json()
+    try:
+        tillDate = params['tillDate']
+        print("focus-tickets %s" % (tillDate, ))
+        tickets = pickle.load(open('data/selTickets.pkl', 'rb'))
+        # MoneyTrace.fetchAllMinutePrice(tickets, tillDate=tillDate)
+        tics = MoneyTrace.getLowRsiTicket(tickets, tillDate)
+        print("Low ABV", tics)
+        return {'status':'ok','payload':tics}
+    except Exception as e:
+        print("Error: %s" % e)
+        return {'status':'bad', 'reason':'Wrong param'}
 
 @app.route('/appdb', methods=['POST'])
 def favoriteTicket():
@@ -307,11 +336,16 @@ def updateIntra():
         if refetch:
             MoneyTrace.ticketFilter()
         tickets = pickle.load(open('data/selTickets.pkl', 'rb'))
-        MoneyTrace.fetchAllMinutePrice(tickets, tillDate=tillDate)
+        # MoneyTrace.fetchAllMinutePrice(tickets, tillDate=tillDate)
+        MoneyTrace.updateAbvAll(tickets, tillDate=tillDate)
+        print("update done")
         return {'status':'ok', 'reason':'Intra data updated'}
     except Exception as e:
         print("Error: %s" % e)
         return {'status':'bad', 'reason':'Wrong param'}
+
+def server_startup():
+    MoneyTrace.updateTradingDays()
 
 if __name__ == '__main__':
     # scheduler = BackgroundScheduler() 
@@ -323,4 +357,5 @@ if __name__ == '__main__':
     # print("Scheduler is on, starting server...")
 
     # app.run(debug=True, host='localhost')
+    server_startup()
     socket_.run(app, debug=True)

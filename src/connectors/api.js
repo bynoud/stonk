@@ -27,8 +27,12 @@ const getGroupTickets = () => {
     return _dopost('/grouped-tickets')
 }
 
-const getTicketPrice = (tic) => {
-    return _dopost('/abv-test', {tic})
+const getFocusTickets = (tillDate) => {
+    return _dopost('/focus-tickets', {tillDate})
+}
+
+const getTicketPrice = (tic, tillDate, refetch) => {
+    return _dopost('/abv-test', {tic, tillDate, refetch})
 }
 
 const favoriteTicket = (tic, op) => {
@@ -46,5 +50,5 @@ const ws_open = () => {
 }
 
 export {getGroupTickets, getTicketPrice, favoriteTicket,
-        updatePrice,
-        ws_open}
+    getFocusTickets, updatePrice,
+    ws_open}

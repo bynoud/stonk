@@ -84,12 +84,12 @@ const Today = () => {
     setState({ticket: event.target.value.toUpperCase()})
   }
 
-  const getData = (event) => {
+  const getData = (event, live) => {
     event.preventDefault();
     const requestOptions = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tic: state.ticket })
+      body: JSON.stringify({ tic: state.ticket, tillDate:0, refetch: live, refresh:1})
     };
     console.log('getData .......', state.ticket)
     setState({waiting:true})
@@ -106,7 +106,7 @@ const Today = () => {
           // onFetched();
           setData(data.payload.map( d => {
             d.date = new Date(d.time * 1000); 
-            // d.volume = d.volumn;
+            d.volume = d.volumn;
             return d
           }))
         }
@@ -140,7 +140,7 @@ const Today = () => {
 
   return <div>
     {/* { socket ? <button onClick={testMe}>Clickme</button> : <div>Not connected</div>} */}
-    <form onSubmit={getData} >
+    <form onSubmit={(e) => getData(e,0)} >
       <fieldset>
         <label>
           <p>Ticket</p>
@@ -149,6 +149,7 @@ const Today = () => {
       </fieldset>
       <button type="submit" disabled={state.waiting} >Submit</button>
     </form>
+    <button onClick={(e) => getData(e,1)}>Live Data</button>
     {data == null ? null : <TodayChart data={data} ticket={state.ticket} />}
   </div>
 }

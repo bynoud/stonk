@@ -44,17 +44,17 @@ class MiniChart extends React.Component {
 		// this.refresh()
 	}
 
-	refresh() {
-		let ticket = this.props.ticket
+	refresh(refetch) {
+		const { ticket, getLive } = this.props
         console.log("refreshing", ticket)
-        getTicketPrice(ticket).then(data => this.setState({initialData:data.map( d => {
+        getTicketPrice(ticket, getLive?0:1, refetch).then(data => this.setState({initialData:data.map( d => {
 			d.date = new Date(d.time * 1000); 
 			return d
 		})}))
     }
 
 	componentDidMount() {
-		this.refresh();
+		this.refresh(0);
 	}
 
 	render() {
@@ -110,6 +110,8 @@ class MiniChart extends React.Component {
 			<label>{ticket}</label>
 			{/* <button onClick={() => favoriteTicket(ticket,isFav?'remove':'add')}>{isFav ? 'Unfavor':'Favor'}</button> */}
 			<button onClick={favUpdate}>{isFav ? 'Unfavor':'Favor'}</button>
+			<button onClick={() => this.refresh(1)}>Live Data</button>
+
 			<ChartCanvas height={height}
 				width={width}
 				ratio={ratio}

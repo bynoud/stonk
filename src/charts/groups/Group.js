@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react"
 
-import {getGroupTickets, updatePrice, ws_open} from '../../connectors/api'
+import {getGroupTickets, getFocusTickets, updatePrice, ws_open} from '../../connectors/api'
 import Header from "./Header"
 import MultiChart from './MultiChart'
 import './Group.css'
 
 const _FAV_ = '* Favorites *'
+const _FOCUS_ = '* Focus *'
 
 const Today = () => {
     const [groups, _setGroup] = useState({})
@@ -14,6 +15,8 @@ const Today = () => {
         waiting: true,
         logmsg: '',
         activeTab: '',
+        getLive: false,
+        refetchHistory: false,
     })
     const [socket, setSocket] = useState(null);
     const [appdb, setAppdb] = useState(null);
@@ -39,7 +42,17 @@ const Today = () => {
         _setGroupName(st => [...new Set([name,...st,])])
     }
 
-    const onClickTabItem = (tab) => setState({activeTab: tab})
+    const onClickTabItem = (tab) => {
+        if (tab === _FOCUS_) {
+            getFocusTickets(state.getLive?0:1).then(tickets => {
+                addGroup(_FOCUS_, tickets);
+                setState({logmsg:'Fetched focus tickets'});
+                setState({activeTab: tab})
+            })
+        } else {
+            setState({activeTab: tab})
+        }
+    }
 
     // fetch once
     useEffect(() => {
@@ -61,6 +74,7 @@ const Today = () => {
         newWs.on('appdb', (msg) => {
             console.log("WS on appdb", msg)
             addGroup(_FAV_, msg.fav)
+            addGroup(_FOCUS_, [])
             setAppdb(msg)
         })
         newWs.emit('appdb', {op:'get',params:{}})
@@ -78,12 +92,30 @@ const Today = () => {
     
     return <div>
         <label>{state.logmsg}</label>
-        <button onClick={() => updatePrice(0,0)}>Update</button>
+        <button onClick={() => {
+            console.log("updating", state);
+            updatePrice(state.refetchHistory, state.getLive?0:1)
+                .then((stt) => setState({logmsg:`Updated: ${stt}`}))
+        }
+        }>Update</button>
+        <label>
+        <input type='checkbox' checked={state.getLive} 
+            onChange={() => setState({getLive:!state.getLive})}></input>
+            Get Live
+        </label>
+        <label>
+        <input type='checkbox' checked={state.refetchHistory} 
+            onChange={() => setState({refetchHistory:!state.refetchHistory})}></input>
+            Refetch
+        </label>
         <hr/>
         
         <Header groups={groupNames} onClick={onClickTabItem}/>
         {(state.activeTab === '') ? null :
-            <MultiChart tickets={groups[state.activeTab]} socket={socket} favorites={groups[_FAV_]}></MultiChart>}
+            <MultiChart tickets={groups[state.activeTab]}
+                socket={socket} 
+                favorites={groups[_FAV_]}
+                getLive={state.getLive}></MultiChart>}
         {/* <div className="tab-content">
           {state.groups.map((grp) => {
                 if (grp !== state.activeTab) return undefined;
