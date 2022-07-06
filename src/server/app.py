@@ -277,6 +277,7 @@ def getAbvTest():
     #     pickle.dump(price, open('data/tmp_price_%s.pkl' % ticket, 'wb'))
     df = MoneyTrace.abvRsi(ticket, tillDate=tillDate, getLive=refetch, refresh=refresh)
     df['volRsi'] = df.abvRsi
+    df['cci'] = df.cci
     abvSum = df.buyVol + df.sellVol
     df['buyVol'] = df.buyVol * df.volumn / abvSum
     df['sellVol'] = df.sellVol * df.volumn / abvSum

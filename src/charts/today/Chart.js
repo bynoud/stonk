@@ -66,9 +66,11 @@ class VolumeProfileBySessionChart extends React.Component {
 		const changeCalculator = change();
 
 		const { type, data: initialData, width, height, ratio } = this.props;
-		const priceChartHeight = height * 0.72;
-		const volChartHeight = priceChartHeight / 2.5;
-		const indexChartHeight = height * 0.26;
+		const priceChartHeight = height * 0.58; //0.72;
+		const volChartHeight = priceChartHeight / 1.8;
+		const indexChartHeight = height * 0.2;
+		const cciChartHeight = height * 0.2;
+
 		console.log('height', height, priceChartHeight, volChartHeight, indexChartHeight);
 
 		const smaVolume50 = sma()
@@ -92,7 +94,11 @@ class VolumeProfileBySessionChart extends React.Component {
 		const start = xAccessor(last(data))+1;
 		const end = xAccessor(data[Math.max(0, data.length - 150)]);
 		const xExtents = [start, end];
-		console.log("xextend", xExtents)
+
+		let cciMin = 0;
+		let cciMax = 100;
+		let abvMin = 0;
+		let abvMax = 100;
 
 		const f = scaleOrdinal(schemeCategory10)
 			.domain(set(data.map(d => d.region)));
@@ -175,7 +181,7 @@ class VolumeProfileBySessionChart extends React.Component {
 				</Chart>
 
 				<Chart id={3}
-					yExtents={[0, 100]}
+					yExtents={[d => Math.min(abvMin, d.volRsi), d => Math.max(abvMax, d.volRsi)]}
 					height={indexChartHeight} origin={(w, h) => [0, priceChartHeight+1]}
 				>
 					<XAxis axisAt="bottom" orient="bottom" showTicks={false} outerTickSize={0} />
@@ -195,6 +201,30 @@ class VolumeProfileBySessionChart extends React.Component {
 
 					<RSITooltip origin={[0, 15]}
 						yAccessor={d => d.volRsi}
+						options={{windowSize:14}} />
+				</Chart>
+
+				<Chart id={4}
+					yExtents={[d => Math.min(cciMin, d.cci), d => Math.max(cciMax, d.cci)]}
+					height={cciChartHeight} origin={(w, h) => [0, priceChartHeight+indexChartHeight+2]}
+				>
+					<XAxis axisAt="bottom" orient="bottom" showTicks={false} outerTickSize={0} />
+					{/* <YAxis axisAt="right"
+						orient="right"
+						tickValues={[30, 50, 70]}
+						/> */}
+					{/* <MouseCoordinateY
+						at="right"
+						orient="right"
+						displayFormat={format(".2f")} /> */}
+
+					<RSISeries yAccessor={d => d.cci} 
+						overSold='-100' overBought='100' middle='0'
+						stroke={{insideThreshold:'#d60dd6'}}
+					/>
+
+					<RSITooltip origin={[0, 15]}
+						yAccessor={d => d.cci}
 						options={{windowSize:14}} />
 				</Chart>
 

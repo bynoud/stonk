@@ -77,7 +77,7 @@ def getAllTickets(exchange: str = 'hose hnx upcom'):
     query = ''
     for e in exchange:
         query += '%s: stockRealtimes(exchange: "%s") {stockNo stockSymbol exchange __typename }' % (e,e)
-    r = requests.post("https://gateway-iboard.ssi.com.vn/graphql",
+    r = requests.post("https://wgateway-iboard.ssi.com.vn/graphql",
         data={"operationName":None, "variables":{}, "query": '{%s}' % query})
     if r.status_code != 200:
         # logging.error("Failed to get Symbols '%s'" % r.reason)

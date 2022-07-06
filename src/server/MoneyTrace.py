@@ -2,6 +2,7 @@
 from http.client import NO_CONTENT
 import StockAPI, Symbol
 import pandas as pd
+import numpy as np
 import pickle, os
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -14,11 +15,13 @@ _G = {
     'ABV_CACHED': {},
 }
 
+MAXDAY = 500
+
 def updateTradingDays():
     today = datetime.now().strftime("%D")
     # print("Get today %s - %s - %s" % (today, _G['TODAY'], daynum), end='')
     # if _G['TODAY'] != today:
-    _G['TRADEDAY'] = [datetime.fromtimestamp(x).replace(hour=15) for x in StockAPI.getTradingDate(200)]
+    _G['TRADEDAY'] = [datetime.fromtimestamp(x).replace(hour=15) for x in StockAPI.getTradingDate(MAXDAY)]
     _G['TODAY'] = today
     _G['ABV_CACHED'] = {}
 
@@ -81,7 +84,7 @@ def _getLastDate(daynum: int) -> datetime:
 #     print("Done")
 
 
-def _getPriceMinute_old(ticket:str, dayNum:int=100, tillDate:int=0):
+def _getPriceMinute_old(ticket:str, dayNum:int=200, tillDate:int=0):
     print("Fetching Minute prices for '%s' last %0d days till %s ..." % (ticket, dayNum, _getLastDate(tillDate)))
     res = {'prices': [], 'lastNotFoundIdx': -1}
     # prices = pd.DataFrame()
@@ -148,7 +151,7 @@ def _getPriceMinute_old(ticket:str, dayNum:int=100, tillDate:int=0):
     
     return res['prices']
 
-def _getPriceMinute(ticket:str, dayNum:int=100, tillDate:int=0, getLive=False):
+def _getPriceMinute(ticket:str, dayNum:int=200, tillDate:int=0, getLive=False):
     # print("Fetching Minute prices for '%s' last %0d days till %s ..." % (ticket, dayNum, _getLastDate(tillDate)))
     res = {'prices': [], 'lastNotFoundIdx': -1, 'needWriteback': False}
     # prices = pd.DataFrame()
@@ -268,7 +271,7 @@ def ticketFilter(tickets=None, filerFunc='_default_'):
     pickle.dump(symbols, open('data/current_prices.pkl', 'wb'))
     pickle.dump(tickets, open('data/selTickets.pkl', 'wb'))
 
-def fetchAllMinutePrice(tickets=None, dayNum=100, tillDate=0):
+def fetchAllMinutePrice(tickets=None, dayNum=200, tillDate=0):
     updateTradingDays()
     tillDate = getTradingDayIndex(tillDate==0)
     if tickets is None:
@@ -310,7 +313,13 @@ def AccumuleBalanceVolume(df, refPrice=None):
 
     return abv
 
-def _abvRsi(ticket,dayNum=100,tillDate=0, ignoreStartEnd=False, getLive=False):
+def cci(df, win=20, const=0.015):
+    tp = (df.high + df.low + df.close) / 3
+    mad = lambda x: np.fabs(x - x.mean()).mean()
+    sma = tp.rolling(window=win)
+    return (tp - sma.mean()) / (const * sma.apply(mad, raw=True))
+
+def _abvRsi(ticket,dayNum=200,tillDate=0, ignoreStartEnd=False, getLive=False):
     tillDate = getTradingDayIndex(tillDate==0)
     m1 = _getPriceMinute(ticket,dayNum,tillDate,getLive)
     daily = []
@@ -328,6 +337,7 @@ def _abvRsi(ticket,dayNum=100,tillDate=0, ignoreStartEnd=False, getLive=False):
         
     daily = pd.DataFrame(daily)
     daily['abvRsi'] = volRsi(daily.buyVol, daily.sellVol)
+    daily['cci'] = cci(daily)
     # return [daily,m1]
     # print(daily.tail())
     return daily
@@ -343,20 +353,30 @@ def getLowRsiTicket(tickets, tillDate):
     retTickets = []
     for tic in tickets:
         abv = abvRsi(tic, tillDate=tillDate)
-        if abv['abvRsi'].iloc[-20:].min() < 5:
+        if abv['abvRsi'].iloc[-10:].min() < 0.5:
             retTickets.append(tic)
     return retTickets
-    
 
-def volRsi(buyVol, sellVol):
+def ema(ps, win):
+    return ps.ewm(span=win, min_periods=win, adjust=False, ignore_na=False).mean()
+def dema(ps, win):
+    ema1 = ema(ps, win)
+    ema2 = ema(ema1, win)
+    return (2*ema1) - ema2
+
+def volRsi(buyVol, sellVol, win=20):
     # chg = (buyVol - sellVol) / (buyVol + sellVol)
     # delta = chg
     delta = buyVol - sellVol # * 1.1 # give SellVol a 10% advantage?
     dUp, dDown = delta.copy(), delta.copy()
     dUp[dUp < 0] = 0
     dDown[dDown > 0] = 0
-    rolUp = dUp.rolling(window=15).mean()
-    rolDown = dDown.rolling(window=15).mean().abs()
+    # rolUp = dUp.rolling(window=win).mean()
+    # rolDown = dDown.rolling(window=win).mean().abs()
+    # rolUp = dUp.ewm(span=win, min_periods=win, adjust=False, ignore_na=False).mean()
+    # rolDown = dDown.ewm(span=win, min_periods=win, adjust=False, ignore_na=False).mean().abs()
+    rolUp = dema(dUp, win)
+    rolDown = dema(dDown, win).abs()
     rs = (rolUp / rolDown).fillna(10000000000000)
     # print(rs.tail(10))
     return ( 100.0 - 100.0 / (1.0 + rs))
