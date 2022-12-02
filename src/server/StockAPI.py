@@ -21,15 +21,18 @@ class IntraServer:
     def __init__(self, srv: str, dbDir='data/intras'):
         self.srv = srv
         self._dir = dbDir
-        self._retry = 5
+        self._retry = 1
         self._cookie = ''
-        self.renewCookie()
+        # self.renewCookie()
 
     def renewCookie(self):
         # print('date', date)
         self._cookie = _getCookie(self.srv)
 
     def intraday(self, ticket: str, date, dontsave=False, refetch=False):
+        if self._cookie == '':
+            self.renewCookie()
+
         if isinstance(date, str):
             dateStr = date
             date = datetime.datetime.strptime(dateStr + ' 07', '%Y%m%d %H') # This is to matched with tradingDate response
@@ -430,7 +433,7 @@ def _getCookie(srv=None):
     if srv == 'vcsc':
         url = 'http://priceboard1.vcsc.com.vn/vcsc/intraday'
     elif srv == 'vdsc':
-        url = 'https://livedragon.vdsc.com.vn/general/intradaySearch.rv'
+        url = 'https://livedragon.vdsc.com.vn/general/intradayBoard.rv'
     else:
         raise Error('Wrong Intra Server option: %s' % srv)
     r = requests.get(url, headers={'User-Agent': _OPT['agent']})
@@ -555,11 +558,20 @@ def intradaySearch(sym, svrs, idx=-1):
         return False
 
     def get_vdsc(tic,date):
-        intra1 = svrs['vdsc'].intraday(tic, date, dontsave=True, refetch=True)
+        try:
+            intra1 = svrs['vdsc'].intraday(tic, date, dontsave=True, refetch=True)
+        except Exception as e:
+            print("VDSC failed: %s" % e)
+            return ([], True)
         return (intra1, dayPassed and not intraOk(intra1))
     
     def get_vcsc(tic,date):
-        intra1 = svrs['vcsc'].intraday(tic, date, dontsave=True, refetch=True)
+        try:
+            intra1 = svrs['vcsc'].intraday(tic, date, dontsave=True, refetch=True)
+        except Exception as e:
+            print("VCSC failed: %s" % e)
+            return ([], True)
+
         failed = False
         if dayPassed and intra1 is not None and not intraOk(intra1):
             vol = intraMatchedOnly(intra1)['mv'].sum()
